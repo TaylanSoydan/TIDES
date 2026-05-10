@@ -1,8 +1,8 @@
-# TIDES — Time-aware Input-Dependent State-space models
+# TIDES — Time-aware Input-Dependent State Space Model
 
 ![TIDES architecture](docs/TIDES_fig2.png)
 
-Anonymous code release accompanying the NeurIPS 2026 submission.
+Code release accompanying the NeurIPS 2026 submission.
 
 This repository contains the PyTorch implementation of TIDES, the training pipelines for the two main benchmarks reported in the paper (UEA time-series classification and the Physiome-ODE irregular-multivariate-time-series forecasting benchmark), and the JAX notebook used for the *Fading Flash* diagnostic.
 
