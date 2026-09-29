@@ -139,7 +139,8 @@ constant predictors.  Mamba-3 follows the mamba_ssm 2.3.2.post1 release
 the README); Mamba-3 runs anywhere.  On one RTX 4090 the whole run (10 models,
 3 seeds) takes about two hours.  Per epoch: 0.4-0.7 s for the SSM rows, 0.2 s
 for RFormer, 0.1-0.2 s for Mamba-1/2, and 1.4 s for Mamba-3 (chunked PyTorch
-scan).
+scan).  On a GPU the runs are bit-reproducible for every model except RFormer;
+on CPU RFormer is too.
 
 ## Fading Flash (main-text section and appendix)
 
