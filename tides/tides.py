@@ -460,11 +460,13 @@ class TIDESSSM(nn.Module):
         conv_kernel_size: int = 0,
         proj_init_method: str = "zeros",
         proj_norm: Optional[str] = None,
+        step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
         for name, m in (('lambda_re_mode', lambda_re_mode),
                         ('lambda_im_mode', lambda_im_mode),
-                        ('bc_mode', bc_mode)):
+                        ('bc_mode', bc_mode),
+                        ('step_mode', step_mode)):
             if m not in ('lti', 'input_dependent'):
                 raise ValueError(
                     f"{name} must be 'lti' or 'input_dependent', got {m!r}")
@@ -479,6 +481,7 @@ class TIDESSSM(nn.Module):
         self.learn_lambda = learn_lambda
         self.liquid = liquid
         self.bidir = bidir
+        self.step_mode = step_mode
 
         # ── HiPPO initialization ──────────────────────────────────────────────
         block_size = ssm_size // blocks
@@ -534,6 +537,18 @@ class TIDESSSM(nn.Module):
 
         # ── Learnable timescale ───────────────────────────────────────────────
         self.log_step = nn.Parameter(_init_log_steps(P, dt_min, dt_max))
+
+        # ── Input-dependent step (Mamba-style surrogate, "Mamba_S") ───────────
+        # step = softplus(W [x, Δ] + b): Δ becomes one more input feature rather
+        # than the physical interval that scales the discretization.  Starts at
+        # step = 1 for every state (softplus⁻¹(1) = 0.5413).
+        if step_mode == "input_dependent":
+            self.step_proj = nn.Linear(H + 1, P)
+            with torch.no_grad():
+                nn.init.zeros_(self.step_proj.weight)
+                self.step_proj.bias.fill_(0.5413)
+        else:
+            self.step_proj = None
 
         # Expand HiPPO eigenvalues to full_P for bias initialization
         if conj_sym:
@@ -799,11 +814,19 @@ class TIDESSSM(nn.Module):
         B_tilde, C_tilde = self._get_BC(x)  # static or (L, ...)
 
         # Compute step: (P,) or (L, P)
-        step_base = torch.exp(self.log_step)  # (P,)
-        if not torch.is_tensor(step_scale) or step_scale.ndim == 0:
-            step = float(step_scale) * step_base   # (P,)
+        if self.step_mode == "input_dependent":
+            if torch.is_tensor(step_scale) and step_scale.ndim > 0:
+                dt_feat = step_scale.unsqueeze(-1)  # (L, 1)
+            else:
+                dt_feat = torch.full((x.shape[0], 1), float(step_scale),
+                                     device=x.device, dtype=x.dtype)
+            step = F.softplus(self.step_proj(torch.cat([x, dt_feat], dim=-1)))  # (L, P)
         else:
-            step = step_scale[:, None] * step_base[None, :]  # (L, P)
+            step_base = torch.exp(self.log_step)  # (P,)
+            if not torch.is_tensor(step_scale) or step_scale.ndim == 0:
+                step = float(step_scale) * step_base   # (P,)
+            else:
+                step = step_scale[:, None] * step_base[None, :]  # (L, P)
 
         # When any parameter is input-dependent and conj_sym is on, all dimensions
         # must be expanded to full_P (asymmetric conj_sym).
@@ -915,6 +938,7 @@ class TIDESBlock(nn.Module):
         conv_kernel_size: int = 0,
         proj_init_method: str = "zeros",
         proj_norm: Optional[str] = None,
+        step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
         # BatchNorm without learnable affine: matches JAX channelwise_affine=False
@@ -939,6 +963,7 @@ class TIDESBlock(nn.Module):
             conv_kernel_size=conv_kernel_size,
             proj_init_method=proj_init_method,
             proj_norm=proj_norm,
+            step_mode=step_mode,
         )
         self.glu = ExpandedGLU(H, ff_mult)
         self.dropout = nn.Dropout(drop_rate)
@@ -1004,6 +1029,9 @@ class TIDES(nn.Module):
         drop_rate:            Dropout rate inside blocks
         encoder_depth:        GLU residual layers in the input encoder
         lambda_encoder_depth: GLU residual layers in the Lambda projector
+        step_mode:            'lti' (TIDES: step = Δ · exp(log_step)) or
+                              'input_dependent' (Mamba-style surrogate:
+                              step = softplus(W [x, Δ] + b))
     """
 
     def __init__(
@@ -1032,6 +1060,7 @@ class TIDES(nn.Module):
         conv_kernel_size: int = 0,
         proj_init_method: str = "zeros",
         proj_norm: Optional[str] = None,
+        step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
         # Input encoder: GLU residuals at d_input, then project to d_hidden
@@ -1059,6 +1088,7 @@ class TIDES(nn.Module):
                 conv_kernel_size=conv_kernel_size,
                 proj_init_method=proj_init_method,
                 proj_norm=proj_norm,
+                step_mode=step_mode,
             )
             for _ in range(num_blocks)
         ])
@@ -1118,6 +1148,7 @@ class TIDESClassifier(nn.Module):
         conv_kernel_size: int = 0,
         proj_init_method: str = "zeros",
         proj_norm: Optional[str] = "rmsnorm",
+        step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
         self.backbone = TIDES(
@@ -1131,6 +1162,7 @@ class TIDESClassifier(nn.Module):
             lambda_encoder_depth=lambda_encoder_depth, bc_rank=bc_rank,
             ff_mult=ff_mult, conv_kernel_size=conv_kernel_size,
             proj_init_method=proj_init_method, proj_norm=proj_norm,
+            step_mode=step_mode,
         )
         self.head = nn.Linear(d_hidden, num_classes)
 
