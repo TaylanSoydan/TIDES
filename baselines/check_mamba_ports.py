@@ -18,10 +18,10 @@ parity).  That verifies the projections, activations, norms, biases and RoPE
 angles; the recurrence itself is transcribed from the official single-step
 kernel (mamba3_siso_step.py) and the chunked scan is checked against it.
 
-Reference results, RTX 4090, mamba_ssm 2.3.2.post1:
-    Mamba-1 vs official CUDA scan, fp32        ~1e-6 (max abs)
-    Mamba-2 vs official SSD kernel, fp32        3.7e-05
-    Mamba-3 pre-kernel parity, both scans       ~1e-8
+Reference results, RTX 4090, torch 2.9, mamba_ssm 2.3.2.post1, fp32 (max abs):
+    Mamba-1 vs official CUDA scan               2.2e-08 toy, 4.1e-08 EigenWorms
+    Mamba-2 vs official SSD kernel              3.7e-05 toy, 1.5e-04 EigenWorms
+    Mamba-3 pre-kernel parity, both scans       3.7e-09 toy, 6.0e-07 EigenWorms
 """
 
 import os

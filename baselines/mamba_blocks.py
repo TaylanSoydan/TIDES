@@ -18,13 +18,14 @@ their Triton kernels at module level, so they cannot even be imported without a
 GPU, and the official Mamba-3 SISO kernel uses TMA tensor descriptors, which
 only exist on Hopper (sm_90).  On any other GPU Mamba-3 has to run in PyTorch.
 
-Verification (baselines/check_mamba_ports.py reruns all of these):
-  * Mamba-1 vs mamba_ssm Mamba, end to end, strict state_dict load: 1.8e-08.
-  * Mamba-2 vs mamba_ssm Mamba2 on an RTX 4090 (official Triton kernel):
-    3.7e-05 in fp32.
+Verification (baselines/check_mamba_ports.py reruns all of these; RTX 4090, fp32):
+  * Mamba-1 vs mamba_ssm Mamba, end to end, strict state_dict load: 4.1e-08.
+  * Mamba-2 vs mamba_ssm Mamba2 (official Triton kernel): 1.5e-04.
   * Mamba-3: its Triton kernel cannot run off Hopper, so the check intercepts
     the kernel call inside the official module and feeds the module's own
-    inputs to the PyTorch recurrence here (pre-kernel parity): 1.5e-08.
+    inputs to the PyTorch recurrence here (pre-kernel parity): 6.0e-07.
+    The recurrence equals an independent chunked PyTorch implementation of the
+    training kernel to 1e-14 in float64.
   * mamba3_siso_chunked == mamba3_siso_recurrence to float64 round-off
     (tests/test_mamba_blocks.py).
 """

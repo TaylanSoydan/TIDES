@@ -14,7 +14,7 @@ produces
 which loads with `datasets.load_dataset("parquet", data_dir=...)` locally, and
 as `load_dataset("<user>/fading-flash")` once uploaded:
 
-    huggingface-cli upload <user>/fading-flash data/fading_flash_hf --repo-type dataset
+    hf upload <user>/fading-flash data/fading_flash_hf . --repo-type dataset
 
 The sequences come from the same generator the experiments train on
 (fading_flash/task.py), with a fixed seed per split, so the files are

@@ -4,84 +4,164 @@
 
 Code release accompanying the NeurIPS 2026 submission.
 
-This repository contains the PyTorch implementation of TIDES, the training pipelines for the two main benchmarks reported in the paper (UEA time-series classification and the Physiome-ODE irregular-multivariate-time-series forecasting benchmark), and the JAX notebook used for the *Fading Flash* diagnostic.
+Selective SSMs such as Mamba make the discretisation step Δ a learned function
+of the input, so Δ stops being a physical sampling interval.  TIDES moves the
+input dependence off the step and onto the diagonal state matrix Λ (and B, C):
+Δ keeps its meaning as the time between observations, so irregular timestamps
+are handled natively, without giving up per-token selectivity.
+
+This repository contains the PyTorch implementation of TIDES and everything
+needed to reproduce the paper: UEA classification, Physiome-ODE forecasting,
+the EigenWorms drop-rate experiment, and the *Fading Flash* diagnostic,
+including the Mamba-1/2/3 baselines.
 
 ## Repository layout
 
 ```
-tides/                 PyTorch model package (importable as `tides`)
-physiome_ode/          Forecasting experiments on Physiome-ODE
-uea/                   Classification experiments on UEA
-fading_flash/          JAX notebook + reference SSM models (kept verbatim)
-data/                  Dataset placement and download instructions
-docs/                  Reproducibility commands and dataset license details
+tides/          PyTorch model package (importable as `tides`)
+uea/            UEA classification (Table 1) and the EigenWorms drop-rate experiment
+physiome_ode/   Physiome-ODE forecasting (Table 2)
+fading_flash/   Fading Flash: task generator, models, figures, static dataset export
+baselines/      Mamba-1/2/3 baselines: PyTorch ports and a sequence classifier
+tests/          pytest suite (CPU, ~15 s)
+docs/           reproducibility tables (every configuration) and dataset licenses
+data/           where the datasets go (nothing is redistributed)
 ```
 
 ## Installation
 
-Single conda environment for the PyTorch experiments:
+Python 3.11:
 
 ```bash
-conda env create -f environment.yml
-conda activate tides
+pip install -r requirements.txt          # or: conda env create -f environment.yml && conda activate tides
+pytest tests                             # quick check, CPU only
 ```
 
-Or with pip:
+`pip` picks PyTorch's default CUDA build.  If your driver is older than that
+build, install a matching wheel first, e.g.
+`pip install torch --index-url https://download.pytorch.org/whl/cu126`.
+Tested with Python 3.11 and PyTorch 2.9 and 2.14 on Linux, CPU and RTX 4090.
+
+### Mamba baselines (optional)
+
+Mamba-1 and Mamba-2 run on the official `mamba_ssm` CUDA kernels, which must
+match your PyTorch and CUDA versions.  A combination that works (Linux, CUDA 12
+driver, Python 3.11):
 
 ```bash
-pip install -r requirements.txt
+pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cu126
+pip install einops transformers
+pip install --no-deps \
+  https://github.com/Dao-AILab/causal-conv1d/releases/download/v1.6.2.post1/causal_conv1d-1.6.2.post1+cu12torch2.9cxx11abiTRUE-cp311-cp311-linux_x86_64.whl \
+  https://github.com/state-spaces/mamba/releases/download/v2.3.2.post1/mamba_ssm-2.3.2.post1+cu12torch2.9cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
+python baselines/check_mamba_ports.py    # needs a GPU; compares the ports with mamba_ssm
 ```
 
-The Fading Flash notebook uses JAX and lives under `fading_flash/`; create a separate environment for it (see `fading_flash/README.md`).
+Mamba-3 needs none of this.  Its official kernel only runs on Hopper GPUs, so
+the repository uses a PyTorch port of the SISO block (`baselines/mamba_blocks.py`),
+checked against the official module and computed with a chunked scan.  It
+follows the 2.3.2.post1 release; `docs/reproducibility.md` notes where the
+Fading Flash runs differ.
+
+## Using the model
+
+```python
+import torch
+from tides import TIDESClassifier, step_scale_from_indices
+
+model = TIDESClassifier(d_input=6, num_classes=5, d_hidden=16, ssm_size=16,
+                        ssm_blocks=2, num_blocks=1, bidir=True)
+
+x = torch.randn(8, 1000, 6)                       # (batch, observed steps, channels)
+keep = sorted(torch.randperm(2000)[:1000].tolist())
+dt = step_scale_from_indices(keep)                # gap to the previous observation
+logits = model(x, step_scale=dt)                  # (8, 5); dt may also be (batch, steps)
+```
+
+`step_mode="input_dependent"` gives the Mamba-style variant used as a control in
+the paper (Mamba_S): the step becomes `softplus(W [x, Δ] + b)` instead of the
+observed interval.  `TIDESForecastingModel` is the forecasting model used on
+Physiome-ODE.
+
+Both models can be saved to and loaded from the Hugging Face Hub:
+
+```python
+model.save_pretrained("tides-eigenworms")         # config.json + model.safetensors
+model.push_to_hub("<user>/tides-eigenworms")
+model = TIDESClassifier.from_pretrained("<user>/tides-eigenworms")
+```
 
 ## Reproducing the results
 
+Every configuration used in the paper is in `docs/reproducibility.md`.
+
 ### UEA classification (Table 1)
 
-For each of the six UEA datasets:
-
 ```bash
-python -m uea.main --config uea/configs/eworms.yaml
-python -m uea.main --config uea/configs/heartbeat.yaml
-python -m uea.main --config uea/configs/motor.yaml
-python -m uea.main --config uea/configs/ethanol_concentration.yaml
-python -m uea.main --config uea/configs/SCP1.yaml
-python -m uea.main --config uea/configs/SCP2.yaml
+python uea/main.py --config uea/configs/tides/EW.yaml    # likewise SCP1, SCP2, MI, ETC, HB
 ```
 
-Each run repeats five seeds with a 70/15/15 random partition. Datasets are downloaded automatically via `aeon.datasets.load_classification`.
+Five seeds (42-46) on a 70/15/15 random re-split each; the script ends with
+test accuracy at the best-validation epoch, mean ± std over seeds.  Datasets
+download automatically via `aeon` into `data/UEA_datasets/` (`--data_dir` to
+change).  The RFormer baseline configurations are in `uea/configs/rformer/`;
+`uea/hypersearch.py` and `uea/run_top_configs.py` rerun the search.
 
 ### Physiome-ODE forecasting (Table 2)
 
-Download the Physiome-ODE benchmark from Zenodo (https://zenodo.org/records/11492058) and place its `final/` directory under `data/physiome_ode/` so each dataset folder is at `data/physiome_ode/<dataset>/<fold>/`. Then run all five folds with the best configuration:
+Download `final.zip` from https://zenodo.org/records/11492058 and unpack the
+contents of its `final/` folder into `data/physiome_ode/` (see `data/README.md`),
+so that each dataset is at `data/physiome_ode/<dataset>/<fold>/`.  Then
 
 ```bash
-python -m physiome_ode.run_final_folds \
-    --dataset hodgkin_huxley_1952_variant01 \
-    --hidden_size 32 --ssm_blocks 2 --ssm_dim_mult 2 --num_blocks 3 \
-    --mode_combo input_dependent/lti/input_dependent --lr 5e-4 --weight_decay 1e-4 \
-    --batch_size 32 --drop_rate 0.0 --learn_lambda standard \
-    --discretization zoh --dt_min 0.001
+python physiome_ode/run_final_folds.py --winner HOD01    # dataset code or name, all 50 in docs/reproducibility.md
 ```
 
-Replace the `--dataset` argument and hyperparameters with the entries from `docs/reproducibility.md` for each of the 50 datasets.
-
-To rerun the Optuna hyperparameter search from scratch:
+runs the five folds with that dataset's configuration from
+`physiome_ode/configs/winners.csv`.  To rerun the Optuna search:
 
 ```bash
-python -m physiome_ode.hypersearch_physio \
-    --dataset hodgkin_huxley_1952_variant01 \
-    --fold 0 --num_trials 10 \
-    --data_base_path data/physiome_ode
+python physiome_ode/hypersearch_physio.py --dataset hodgkin_huxley_1952_variant01 \
+    --fold 0 --num_trials 10 --data_base_path data/physiome_ode
 ```
 
-### Fading Flash diagnostic (Section "toy")
+### Drop-rate generalisation on EigenWorms (Figure 6)
 
-Open `fading_flash/fading_flash_experiment.ipynb` in a JAX environment.
+```bash
+python uea/droprate.py                                   # 10 models x 3 seeds -> results/droprate/
+python uea/plot_droprate.py results/droprate/results.csv --out fig_droprate.pdf
+```
+
+Models train with half of the time steps dropped and are tested at drop rates
+0.1-0.9: S5, TIDES and its ablations (Λ-only, B,C-only, full), Mamba_S, RFormer
+with the published EigenWorms configuration, and Mamba-1/2/3.  `--models` and
+`--seeds` select a subset; `--smoke` checks the wiring in a few minutes on CPU.
+The Mamba-1/2 rows need `mamba_ssm` (above).
+
+### Fading Flash
+
+```bash
+OMP_NUM_THREADS=1 python fading_flash/fading_flash.py    # ~12 min on one CPU core
+```
+
+trains S5, TIDES, TIDES (Λ-only), the Mamba surrogate and Mamba-1/2/3 on the
+task and writes the paper's figures to `fading_flash/figures/`.  The task
+itself is `fading_flash/task.py`.
+
+A static copy of the benchmark (train, validation and a test split at each Δ)
+in Hugging Face `datasets` format:
+
+```bash
+python fading_flash/make_hf_dataset.py --out_dir data/fading_flash_hf
+hf upload <user>/fading-flash data/fading_flash_hf . --repo-type dataset
+```
+
+after which `datasets.load_dataset("<user>/fading-flash")` works; the
+generated dataset card describes the fields.
 
 ## Compute
 
-All PyTorch experiments were run on a single NVIDIA L40S (48 GB) GPU. UEA hyperparameter searches take 12–48 GPU-hours per dataset; Physiome-ODE final-fold runs take 0.2–2 GPU-hours per dataset.
+The UEA and Physiome-ODE experiments were run on a single NVIDIA L40S (48 GB) GPU. UEA hyperparameter searches take 12–48 GPU-hours per dataset; Physiome-ODE final-fold runs take 0.2–2 GPU-hours per dataset. The drop-rate experiment was run on an RTX 4090 (24 GB), and Fading Flash trains on CPU.
 
 ## Datasets and licenses
 
@@ -97,6 +177,7 @@ This repository does not redistribute any dataset. Pointers and licensing inform
 | LinODENet baseline | https://github.com/randolf-scholz/linodenet | MIT |
 | GraFITi baseline | https://github.com/yalavarthivk/GraFITi | MIT |
 | S5 reference (utilities used by the SSM scan / discretization) | https://github.com/lindermanlab/S5 | Apache-2.0 |
+| Mamba / Mamba-2 / Mamba-3 (ported in `baselines/mamba_blocks.py`) | https://github.com/state-spaces/mamba | Apache-2.0 |
 
 Baseline numbers reported in the paper are taken from the public Physiome-ODE leaderboard and from the UEA tables in Moreno-Pino et al. (2024) and Walker et al. (2024). The corresponding repositories are not redistributed here.
 
