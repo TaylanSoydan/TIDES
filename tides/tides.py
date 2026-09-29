@@ -34,6 +34,8 @@ from functools import partial
 from typing import Callable, Literal, Optional, Tuple
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
+from ._hub import PyTorchModelHubMixin, hub_kwargs
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # 1. Associative Scan   (adapted from s5.jax_compat)
@@ -1113,12 +1115,14 @@ class TIDES(nn.Module):
 # 10. TIDESClassifier (UEA classification head)
 # ══════════════════════════════════════════════════════════════════════════════
 
-class TIDESClassifier(nn.Module):
+class TIDESClassifier(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-series-classification")):
     """TIDES backbone + mean-pool + linear head for sequence classification.
 
     Accepts the same step_scale as TIDES: float, (L,), or (B, L) tensor.
     For random-drop experiments pass a (L_kept,) step_scale built from
     the kept time indices so the SSM discretization adapts to irregular gaps.
+
+    Supports save_pretrained / from_pretrained / push_to_hub (Hugging Face Hub).
     """
 
     def __init__(

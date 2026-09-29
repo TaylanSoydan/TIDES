@@ -8,11 +8,14 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from ._hub import PyTorchModelHubMixin, hub_kwargs
 from .tides import TIDES
 
 
-class TIDESForecastingModel(nn.Module):
+class TIDESForecastingModel(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-series-forecasting")):
     """TIDES encoder + linear output head for irregularly-sampled forecasting.
+
+    Supports save_pretrained / from_pretrained / push_to_hub (Hugging Face Hub).
 
     Args:
         d_input:              Number of input/output channels (D).
