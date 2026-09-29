@@ -1,8 +1,13 @@
 """Sequence classifier around Mamba-1 / Mamba-2 / Mamba-3 mixers.
 
     Linear(d_input -> d_model)
-    -> num_layers x [ h + Dropout(mixer(RMSNorm(h))) ]      (pre-norm residual)
-    -> RMSNorm -> mean over time -> Linear(d_model -> num_classes)
+    -> num_layers x [ x + Dropout(GLU(Dropout(GELU(mixer(LayerNorm(x)))))) ]
+    -> mean over time -> Linear(d_model -> num_classes)
+
+This is the block of the Mamba and S6 baselines in the Log-NCDE benchmark
+(Walker et al., 2024), and the TIDES block with the SSM swapped for the mixer
+(TIDES uses BatchNorm), so the drop-rate comparison differs only in the
+sequence mixer.
 
 Backends
     "mamba_ssm": the official CUDA modules (mamba_ssm.modules.mamba_simple.Mamba,
@@ -22,6 +27,7 @@ import warnings
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from .mamba_blocks import Mamba1Block, Mamba2Block, Mamba3Block
 
@@ -74,15 +80,29 @@ def build_mixer(variant: str, d_model: int, d_state: int, expand: int,
                   headdim=headdim)
 
 
-class _Layer(nn.Module):
+class GLU(nn.Module):
+    """x -> a * sigmoid(b), with [a, b] = Linear(d -> 2d)(x)."""
+
+    def __init__(self, d: int):
+        super().__init__()
+        self.linear = nn.Linear(d, 2 * d)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        a, b = self.linear(x).chunk(2, dim=-1)
+        return a * torch.sigmoid(b)
+
+
+class _Block(nn.Module):
     def __init__(self, mixer: nn.Module, d_model: int, drop_rate: float):
         super().__init__()
-        self.norm = nn.RMSNorm(d_model)
+        self.norm = nn.LayerNorm(d_model)
         self.mixer = mixer
+        self.glu = GLU(d_model)
         self.dropout = nn.Dropout(drop_rate)
 
-    def forward(self, h: torch.Tensor) -> torch.Tensor:
-        return h + self.dropout(self.mixer(self.norm(h)))
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        y = self.dropout(F.gelu(self.mixer(self.norm(x))))
+        return x + self.dropout(self.glu(y))
 
 
 class MambaClassifier(nn.Module):
@@ -94,12 +114,12 @@ class MambaClassifier(nn.Module):
         num_classes:   output classes
         d_model:       residual width
         d_state:       SSM state size
-        num_layers:    residual mixer layers
+        num_layers:    number of blocks
         expand:        mixer inner width = expand * d_model
         d_conv:        causal conv width (Mamba-1/2; Mamba-3 has no conv)
         headdim:       head width (Mamba-2/3)
         rope_fraction: fraction of d_state rotated by RoPE (Mamba-3)
-        drop_rate:     dropout on each layer's residual branch
+        drop_rate:     dropout after the activation and after the GLU
         backend:       "auto", "mamba_ssm" or "port" (Mamba-1/2 only)
     """
 
@@ -110,19 +130,15 @@ class MambaClassifier(nn.Module):
                  backend: str = "auto", chunk_size: int = 64):
         super().__init__()
         self.variant = variant
-        self.embed = nn.Linear(d_input, d_model)
-        self.layers = nn.ModuleList([
-            _Layer(build_mixer(variant, d_model, d_state, expand, d_conv, headdim,
+        self.encoder = nn.Linear(d_input, d_model)
+        self.blocks = nn.Sequential(*[
+            _Block(build_mixer(variant, d_model, d_state, expand, d_conv, headdim,
                                rope_fraction, backend, chunk_size),
                    d_model, drop_rate)
             for _ in range(num_layers)
         ])
-        self.norm_f = nn.RMSNorm(d_model)
-        self.head = nn.Linear(d_model, num_classes)
+        self.decoder = nn.Linear(d_model, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """x: (B, L, d_input) -> logits (B, num_classes)."""
-        h = self.embed(x)
-        for layer in self.layers:
-            h = layer(h)
-        return self.head(self.norm_f(h).mean(dim=1))
+        return self.decoder(self.blocks(self.encoder(x)).mean(dim=1))

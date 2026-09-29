@@ -20,7 +20,7 @@ def test_ssm_parameter_counts_match_paper():
 
 
 def test_mamba_parameter_counts():
-    expected = {"Mamba": 27125, "Mamba2": 28717, "Mamba3": 26085}
+    expected = {"Mamba": 27669, "Mamba2": 29261, "Mamba3": 26629}
     for name, n in expected.items():
         model = droprate.build_model(name, "cpu", backend="port")
         assert sum(p.numel() for p in model.parameters()) == n, name
