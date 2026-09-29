@@ -1,0 +1,35 @@
+# TIDES on EthanolConcentration -- best configuration from the paper (appendix table
+# "Best TIDES configurations per UEA dataset"; lr at full precision from the
+# hypersearch trial behind that row).
+# Protocol: 70/15/15 split per seed, seeds 42-46, report test accuracy at the
+# epoch with the lowest validation loss ("test@val"), mean +- std over seeds.
+#   python uea/main.py --config uea/configs/tides/ETC.yaml
+dataset: TSC_EthanolConcentration
+model: tides
+n_seeds: 5
+epoch: 200
+early_stop_patience: 30
+batch_size: 20
+lr: 5.176378532337808e-4
+weight_decay: 0.1
+optimizer: Adam
+
+tides_hidden: 8
+tides_ssm_size: 32
+tides_ssm_blocks: 8
+tides_num_blocks: 8
+tides_encoder_depth: 1
+tides_lambda_encoder_depth: 2
+tides_lambda_re_mode: input_dependent
+tides_lambda_im_mode: lti
+tides_bc_mode: input_dependent
+tides_bc_rank: 8
+tides_learn_lambda: exp
+tides_discretization: zoh
+tides_drop_rate: 0.05
+tides_bidir: true
+tides_clip_eigs: false
+tides_dt_min: 0.001
+tides_dt_max: 0.1
+tides_ff_mult: 1.0
+tides_proj_norm: rmsnorm

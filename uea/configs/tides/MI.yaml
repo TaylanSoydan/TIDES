@@ -1,0 +1,34 @@
+# TIDES on MotorImagery -- best configuration from the paper (appendix table
+# "Best TIDES configurations per UEA dataset"; lr as printed there, 3 s.f.).
+# Protocol: 70/15/15 split per seed, seeds 42-46, report test accuracy at the
+# epoch with the lowest validation loss ("test@val"), mean +- std over seeds.
+#   python uea/main.py --config uea/configs/tides/MI.yaml
+dataset: TSC_MotorImagery
+model: tides
+n_seeds: 5
+epoch: 200
+early_stop_patience: 30
+batch_size: 20
+lr: 6.52e-4
+weight_decay: 0.01
+optimizer: Adam
+
+tides_hidden: 32
+tides_ssm_size: 16
+tides_ssm_blocks: 4
+tides_num_blocks: 4
+tides_encoder_depth: 0
+tides_lambda_encoder_depth: 0
+tides_lambda_re_mode: input_dependent
+tides_lambda_im_mode: lti
+tides_bc_mode: input_dependent
+tides_bc_rank: 16
+tides_learn_lambda: standard
+tides_discretization: zoh
+tides_drop_rate: 0.05
+tides_bidir: true
+tides_clip_eigs: true
+tides_dt_min: 0.001
+tides_dt_max: 0.1
+tides_ff_mult: 1.0
+tides_proj_norm: rmsnorm
