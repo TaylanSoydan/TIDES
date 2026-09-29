@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
-"""Generate NeurIPS camera-ready figures for the TIDES paper.
+"""Fading Flash: train every model, then draw the paper's toy-experiment figures.
 
-Usage:
-    python tides_toy_paper_figures.py          # use cache if available
-    python tides_toy_paper_figures.py --retrain  # force retrain
+Models (all tiny, ~150 parameters, trained on CPU in a few minutes each):
+    S5              LTI SSM, Δ used as the step (the physical interval)
+    Mamba surrogate same minimal SSM with an input-dependent step
+                    softplus(W [x, Δ] + b): Δ is only an input feature ("Mamba_S")
+    TIDES           input-dependent Λ and B, C; Δ used as the step
+    TIDES (Λ-only)  input-dependent Λ only
+    Mamba-1/2/3     PyTorch ports of the official Mamba, Mamba-2 and Mamba-3 (SISO)
+                    blocks (baselines/mamba_blocks.py), Δ given as an input feature
+
+Usage (from the repository root):
+    python fading_flash/fading_flash.py              # train (or load cache), draw figures
+    python fading_flash/fading_flash.py --retrain    # ignore the cache
+    python fading_flash/fading_flash.py --params     # parameter counts only
+    python fading_flash/fading_flash.py --steps 100000 --out_dir runs/ff_100k
+
+Everything uses seed 0.  Runs single-threaded best: OMP_NUM_THREADS=1.
+Figures go to --out_dir (default fading_flash/figures), the trained snapshot to
+--cache_dir (default fading_flash/cache).
 """
 
 import argparse
 import hashlib
 import math
+import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -20,23 +37,37 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
+_HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE))
+sys.path.insert(0, str(_HERE.parent))
+
+from task import (RATE_LEVELS, N_RATES, L, D_IN, D_OUT, DT_GRID,  # noqa: E402
+                  make_one_sequence, sample_batch)
+from baselines.mamba_blocks import Mamba1Block, Mamba2Block, Mamba3Block  # noqa: E402
+
 # ─── Color-blind safe palette (Okabe-Ito) ─────────────────────────────────────
 COLORS = {
     'S5':              '#0072B2',   # blue
     'Mamba surrogate': '#CC0000',   # red
     'TIDES':           '#009E73',   # bluish green
     'TIDES (Λ-only)':  '#17BECF',  # turquoise
-    'Real Mamba':      '#9467BD',   # purple
+    # Mamba-1/2/3: same colours and markers as uea/plot_droprate.py
+    'Mamba-1':         '#1100EE',   # ultramarine
+    'Mamba-2':         '#773366',   # plum
+    'Mamba-3':         '#8866FF',   # violet
 }
 MARKERS = {
     'S5':              '^',
     'Mamba surrogate': 's',
     'TIDES':           'o',
     'TIDES (Λ-only)':  '*',
-    'Real Mamba':      'D',
+    'Mamba-1':         'p',
+    'Mamba-2':         'h',
+    'Mamba-3':         'x',
 }
 DISPLAY_NAMES = {
     'Mamba surrogate': r'Mamba$_{\mathrm{S}}$',
+    'Mamba-1':         'Mamba',
 }
 ZONE_FILL  = ['#cde6f7', '#fbe5c8', '#f7c8c8']   # background zone overlays
 ZONE_LABEL = ['Slow (λ=1.0)', 'Medium (λ=1.5)', 'Fast (λ=2.0)']
@@ -57,80 +88,11 @@ plt.rcParams.update({
     'ps.fonttype': 42,
 })
 
-# ─── Task constants ───────────────────────────────────────────────────────────
-RATE_LEVELS = torch.tensor([1.0, 1.5, 2.0])
-N_RATES = 3
-L = 40
-D_IN, D_OUT = 4, 1
-DT_GRID = np.array([0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0])
-
-CACHE_DIR = Path('./cache')
-CACHE_DIR.mkdir(exist_ok=True)
+OUT_DIR = _HERE / 'figures'     # set from --out_dir in main()
+CACHE_DIR = _HERE / 'cache'     # set from --cache_dir in main()
 
 # ═════════════════════════════════════════════════════════════════════════════
-# DATA GENERATORS  (copied verbatim from fading_flash_experiment.py)
-# ═════════════════════════════════════════════════════════════════════════════
-
-def make_one_sequence(n_flashes=3, dt_val=1.0, n_zones=3, seed=None):
-    if seed is not None:
-        np.random.seed(seed); torch.manual_seed(seed)
-    pixels = torch.zeros(L)
-    positions = np.random.choice(L, size=n_flashes, replace=False)
-    pixels[positions] = 1.0
-    if n_zones > 1:
-        boundaries = sorted(np.random.choice(range(4, L - 4), size=n_zones - 1, replace=False))
-    else:
-        boundaries = []
-    zone_spans = [0] + list(boundaries) + [L]
-    rate_idx = torch.zeros(L, dtype=torch.long)
-    prev = -1
-    for i in range(n_zones):
-        r = np.random.randint(N_RATES)
-        while r == prev:
-            r = np.random.randint(N_RATES)
-        rate_idx[zone_spans[i]:zone_spans[i+1]] = r
-        prev = r
-    rates = RATE_LEVELS[rate_idx]
-    alpha = torch.exp(-rates * dt_val)
-    beta  = (1 - alpha) / rates
-    y, h = torch.zeros(L), torch.tensor(0.0)
-    for j in range(L):
-        h = alpha[j] * h + beta[j] * pixels[j]
-        y[j] = h
-    return pixels, rate_idx, y
-
-
-def sample_batch(batch_size, dt_range=(0.5, 1.5)):
-    pixels = torch.zeros(batch_size, L)
-    rate_idx = torch.zeros(batch_size, L, dtype=torch.long)
-    for b in range(batch_size):
-        n_px = np.random.randint(2, 5)
-        pos = np.random.choice(L, size=n_px, replace=False)
-        pixels[b, pos] = 1.0
-        n_s = np.random.randint(2, 4)
-        sw = sorted(np.random.choice(range(4, L-4), size=n_s-1, replace=False)) if n_s > 1 else []
-        bnd = [0] + list(sw) + [L]
-        prev = -1
-        for s in range(n_s):
-            r = np.random.randint(N_RATES)
-            while r == prev: r = np.random.randint(N_RATES)
-            rate_idx[b, bnd[s]:bnd[s+1]] = r
-            prev = r
-    rate_oh = F.one_hot(rate_idx, num_classes=N_RATES).float()
-    x = torch.cat([pixels.unsqueeze(-1), rate_oh], dim=-1)
-    dt = torch.empty(batch_size).uniform_(*dt_range)
-    rates = RATE_LEVELS[rate_idx]
-    alpha = torch.exp(-rates * dt.unsqueeze(-1))
-    beta  = (1 - alpha) / rates
-    y = torch.zeros(batch_size, L); h = torch.zeros(batch_size)
-    for j in range(L):
-        h = alpha[:, j] * h + beta[:, j] * pixels[:, j]
-        y[:, j] = h
-    return x, dt, y.unsqueeze(-1)
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# MODEL DEFINITIONS  (copied verbatim; IDS5 full → TIDES, IDS5 restricted → TIDES (Λ-only))
+# MODEL DEFINITIONS
 # ═════════════════════════════════════════════════════════════════════════════
 
 def discretize_zoh_real(lambda_re, B, step):
@@ -244,70 +206,51 @@ def make_TIDES_lambda():                   # was IDS5 restricted
                             step_mode='external')
 
 
-class RealMambaBlock(nn.Module):
-    def __init__(self, d_model, d_state=3, d_conv=3, expand=1, dt_rank='auto'):
-        super().__init__()
-        self.d_model = d_model; self.d_state = d_state; self.d_conv = d_conv
-        self.d_inner = int(expand * d_model)
-        if dt_rank == 'auto':
-            dt_rank = max(1, math.ceil(d_model / 16))
-        self.dt_rank = dt_rank
-        self.in_proj  = nn.Linear(d_model, 2 * self.d_inner, bias=False)
-        self.conv1d   = nn.Conv1d(self.d_inner, self.d_inner, kernel_size=d_conv,
-                                  groups=self.d_inner, padding=d_conv - 1, bias=True)
-        self.x_proj   = nn.Linear(self.d_inner, dt_rank + 2 * d_state, bias=False)
-        self.dt_proj  = nn.Linear(dt_rank, self.d_inner, bias=True)
-        dt_min, dt_max = 0.001, 0.1
-        dt = torch.exp(torch.rand(self.d_inner) * (math.log(dt_max) - math.log(dt_min))
-                       + math.log(dt_min))
-        inv_dt = dt + torch.log(-torch.expm1(-dt))
-        with torch.no_grad():
-            self.dt_proj.bias.copy_(inv_dt)
-        A = torch.arange(1, d_state + 1, dtype=torch.float32).repeat(self.d_inner, 1)
-        self.A_log = nn.Parameter(torch.log(A))
-        self.D     = nn.Parameter(torch.ones(self.d_inner))
-        self.out_proj = nn.Linear(self.d_inner, d_model, bias=False)
-
-    def forward(self, x):
-        B, L_, _ = x.shape; n = self.d_state
-        xz = self.in_proj(x); x_path, res = xz.chunk(2, dim=-1)
-        x_path = self.conv1d(x_path.transpose(1, 2))[:, :, :L_].transpose(1, 2)
-        x_path = F.silu(x_path)
-        A = -torch.exp(self.A_log); d_in = A.shape[0]
-        x_dbl = self.x_proj(x_path)
-        delta, B_inp, C_inp = torch.split(x_dbl, [self.dt_rank, n, n], dim=-1)
-        delta = F.softplus(self.dt_proj(delta))
-        deltaA  = torch.exp(delta.unsqueeze(-1) * A.unsqueeze(0).unsqueeze(0))
-        deltaB_u = delta.unsqueeze(-1) * B_inp.unsqueeze(-2) * x_path.unsqueeze(-1)
-        h = torch.zeros(B, d_in, n, dtype=x_path.dtype, device=x_path.device)
-        ys = []
-        for j in range(L_):
-            h = deltaA[:, j] * h + deltaB_u[:, j]
-            y_j = torch.einsum('bdn,bn->bd', h, C_inp[:, j]) + self.D * x_path[:, j]
-            ys.append(y_j)
-        return torch.stack(ys, dim=1) * F.silu(res)
+# ═════════════════════════════════════════════════════════════════════════════
+# MAMBA-1 / MAMBA-2 / MAMBA-3
+#
+# PyTorch ports of the official state-spaces/mamba blocks (baselines/
+# mamba_blocks.py; see there for why they are ports and how they are verified).
+#
+# Mamba-1 used to be an inline RealMambaBlock (tides_toy_paper_figures.py in the
+# first release). It never applied its own out_proj -- silently, since
+# d_inner == d_model == 4 -- so 16 of its 153 parameters were dead. It now comes
+# from baselines.mamba_blocks.Mamba1Block, verified end-to-end against
+# mamba_simple.Mamba to 1.8e-08.
+# ═════════════════════════════════════════════════════════════════════════════
 
 
-class RealMambaForTask(nn.Module):
-    def __init__(self, d_model=4, d_state=3, d_conv=3, expand=1):
+class MambaNForTask(nn.Module):
+    """Shared encoder/residual wrapper, so the only thing that differs between
+    Mamba-1 / Mamba-2 / Mamba-3 is the mixer. dt enters as an extra input
+    feature: none of these blocks takes an external dt."""
+
+    def __init__(self, mixer, d_model=4):
         super().__init__()
         self.input_proj = nn.Linear(D_IN + 1, d_model)
-        self.norm       = nn.LayerNorm(d_model)
-        self.mixer      = RealMambaBlock(d_model, d_state=d_state, d_conv=d_conv,
-                                         expand=expand, dt_rank=1)
+        self.norm = nn.LayerNorm(d_model)
+        self.mixer = mixer
         self.output_proj = nn.Linear(d_model, D_OUT)
 
     def forward(self, x, dt):
-        B, L_, _ = x.shape
-        dt_feat = dt.view(B, 1, 1).expand(B, L_, 1)
-        xin = torch.cat([x, dt_feat], dim=-1)
-        h = self.input_proj(xin)
+        B_, L_, _ = x.shape
+        dt_feat = dt.view(B_, 1, 1).expand(B_, L_, 1)
+        h = self.input_proj(torch.cat([x, dt_feat], dim=-1))
         h = h + self.mixer(self.norm(h))
         return self.output_proj(h)
 
 
-def make_Real_Mamba():
-    return RealMambaForTask(d_model=4, d_state=3, d_conv=3, expand=1)
+def make_Mamba1():
+    return MambaNForTask(Mamba1Block(d_model=4, d_state=3, d_conv=3, expand=1,
+                                     dt_rank=1))
+
+
+def make_Mamba2():
+    return MambaNForTask(Mamba2Block(d_model=4, d_state=3, d_conv=3, expand=1))
+
+
+def make_Mamba3():
+    return MambaNForTask(Mamba3Block(d_model=4, d_state=4, expand=1))
 
 
 MODEL_FACTORIES = {
@@ -315,7 +258,9 @@ MODEL_FACTORIES = {
     'Mamba surrogate': make_Mamba,
     'TIDES':           make_TIDES,
     'TIDES (Λ-only)':  make_TIDES_lambda,
-    'Real Mamba':      make_Real_Mamba,
+    'Mamba-1':         make_Mamba1,
+    'Mamba-2':         make_Mamba2,
+    'Mamba-3':         make_Mamba3,
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -482,6 +427,9 @@ def compute_recon_stats(recon_models):
 TRAIN_CONFIG = {
     'n_steps': 3000, 'lr': 3e-3, 'seed': 0,
     'noisy_sigma_in': 0.2, 'noisy_sigma_out': 0.05,
+    # Part of the snapshot hash: change it whenever the model set or a model's
+    # definition changes, so a stale snapshot is never loaded silently.
+    'model_set': 'mamba123-v2',
 }
 
 
@@ -491,6 +439,7 @@ def _hash(d):
 
 def load_or_train(retrain=False):
     cache_path = CACHE_DIR / f'snapshot_{_hash(TRAIN_CONFIG)}.pt'
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     if not retrain and cache_path.exists():
         print(f'Loading cache: {cache_path}')
@@ -499,12 +448,12 @@ def load_or_train(retrain=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Training all models from scratch on {device}...')
 
-    # ── 5 main models ──────────────────────────────────────────────────────
+    # ── all models in MODEL_FACTORIES ──────────────────────────────────────
     models = {}
     for name, make in MODEL_FACTORIES.items():
         torch.manual_seed(0); np.random.seed(0)
         m = make().to(device); print(f'\n  Training {name}...')
-        train_one(m, name)
+        train_one(m, name, n_steps=TRAIN_CONFIG['n_steps'])
         m.cpu().eval(); models[name] = m
 
     print('\nEvaluating OOD performance...')
@@ -518,7 +467,7 @@ def load_or_train(retrain=False):
     for name in ['TIDES', 'TIDES (Λ-only)']:
         torch.manual_seed(0); np.random.seed(0)
         m = MODEL_FACTORIES[name]().to(device); print(f'\n  Training {name} (noisy)...')
-        train_one(m, f'{name} (noisy)',
+        train_one(m, f'{name} (noisy)', n_steps=TRAIN_CONFIG['n_steps'],
                   sigma_in=TRAIN_CONFIG['noisy_sigma_in'],
                   sigma_out=TRAIN_CONFIG['noisy_sigma_out'])
         m.cpu().eval(); noisy_models[name] = m
@@ -557,7 +506,7 @@ def restore_models(snap):
 # ═════════════════════════════════════════════════════════════════════════════
 
 def _save(fig, name):
-    path = f'{name}.pdf'
+    path = OUT_DIR / f'{name}.pdf'
     fig.savefig(path, bbox_inches='tight')
     plt.close(fig)
     print(f'  Saved {path}')
@@ -578,7 +527,7 @@ def _draw_zones(ax, rate_idx, annotate=False):
             j0 = j
 
 
-def _shade_train(ax, label='Training Δt'):
+def _shade_train(ax, label='Training Δ'):
     ax.axvspan(0.5, 1.5, color='gray', alpha=0.12, zorder=0, label=label)
 
 
@@ -630,7 +579,7 @@ def make_fig_setup():
     def _glow_panel(ax, y_np, label):
         _draw_zones(ax, rate_idx)
         for p in FLASH_POS:
-            ax.plot(p, 0, 'v', color='#222222', ms=4, clip_on=True, zorder=3)
+            ax.plot(p, y_np.max() * 0.06, 'v', color='#222222', ms=4, clip_on=True, zorder=3)
         ax.plot(np.arange(L), y_np, color='#222222', lw=1.5)
         ax.fill_between(np.arange(L), 0, y_np, color='#222222', alpha=0.14)
         ax.set_ylim(0, y_np.max() * 1.12)
@@ -659,18 +608,18 @@ def make_fig_setup():
     ax1.grid(False)
 
     # ── row 2: glow at dt = 1 ─────────────────────────────────────────────────
-    _glow_panel(ax2, y1,  'Glow\n(Δt = 1)')
+    _glow_panel(ax2, y1,  'Glow\n(Δ = 1)')
     ax2.tick_params(axis='x', which='both', bottom=False)
 
     # ── row 3: glow at dt = 0.1 ───────────────────────────────────────────────
-    _glow_panel(ax3, y01, 'Glow\n(Δt = 0.1)')
+    _glow_panel(ax3, y01, 'Glow\n(Δ = 0.1)')
     ax3.set_xlabel('Position j', fontsize=_FS)
 
     return fig
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# FIGURE: fig_mechanism  ── hero figure: effective λ vs Δt, 3 zones × 3 models
+# FIGURE: fig_mechanism  ── hero figure: effective λ vs Δ, 3 zones × 3 models
 # ═════════════════════════════════════════════════════════════════════════════
 
 def make_fig_mechanism(models):
@@ -687,7 +636,7 @@ def make_fig_mechanism(models):
     fig, axes = plt.subplots(1, 3, figsize=(7.8, 2.8), sharey=True)
 
     for c, ax in enumerate(axes):
-        _shade_train(ax, label='Training Δt' if c == 0 else '_nolegend_')
+        _shade_train(ax, label='Training Δ' if c == 0 else '_nolegend_')
         ax.axhline(RATE_LEVELS[c].item(), color='black', linestyle='--', lw=1.4,
                    label='Ground truth' if c == 0 else '_nolegend_')
         for name in main:
@@ -695,7 +644,7 @@ def make_fig_mechanism(models):
                     MARKERS[name] + '-', color=COLORS[name], lw=1.8, ms=5,
                     label=DISPLAY_NAMES.get(name, name) if c == 0 else '_nolegend_')
         _log_dt_ticks(ax)
-        ax.set_xlabel('Test-time Δt', fontsize=_FS)
+        ax.set_xlabel('Test-time Δ', fontsize=_FS)
         if c == 0:
             ax.set_ylabel('Effective decay', fontsize=_FS)
         # panel label as in-axes annotation (no matplotlib title padding)
@@ -716,12 +665,12 @@ def make_fig_mechanism(models):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# FIGURE: fig_ood_error  ── relative error vs Δt, all five models
+# FIGURE: fig_ood_error  ── relative error vs Δ
 # ═════════════════════════════════════════════════════════════════════════════
 
 def make_fig_ood_error(results, var_y, order=None):
     if order is None:
-        order = ['S5', 'Mamba surrogate', 'TIDES', 'TIDES (Λ-only)', 'Real Mamba']
+        order = ['S5', 'Mamba surrogate', 'TIDES', 'TIDES (Λ-only)', 'Mamba-1']
     fig, ax = plt.subplots(figsize=(4.5, 2.8))
     _shade_train(ax)
     for name in order:
@@ -729,7 +678,7 @@ def make_fig_ood_error(results, var_y, order=None):
                 MARKERS[name] + '-', color=COLORS[name], lw=1.8, ms=6, label=DISPLAY_NAMES.get(name, name))
     _log_dt_ticks(ax)
     ax.set_yscale('log')
-    ax.set_xlabel('Test-time Δt', fontsize=_FS)
+    ax.set_xlabel('Test-time Δ', fontsize=_FS)
     ax.set_ylabel('Relative error (%)', fontsize=_FS)
     ax.legend(loc='center left', bbox_to_anchor=(1.03, 0.5),
               fontsize=_FS - 1, framealpha=0.9, handlelength=1.8, borderaxespad=0)
@@ -740,18 +689,18 @@ def make_fig_ood_error(results, var_y, order=None):
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# FIGURE: fig_real_mamba  ── Mamba surrogate vs Real Mamba only
+# FIGURE: fig_real_mamba  ── Mamba surrogate vs Mamba-1 only
 # ═════════════════════════════════════════════════════════════════════════════
 
 def make_fig_real_mamba(results, var_y):
     fig, ax = plt.subplots(figsize=(3.5, 2.8))
     _shade_train(ax)
-    for name in ['Mamba surrogate', 'Real Mamba']:
+    for name in ['Mamba surrogate', 'Mamba-1']:
         ax.plot(DT_GRID, _rel_err(results[name], var_y),
                 MARKERS[name] + '-', color=COLORS[name], lw=1.8, ms=6, label=DISPLAY_NAMES.get(name, name))
     _log_dt_ticks(ax)
     ax.set_yscale('log')
-    ax.set_xlabel('Test-time Δt', fontsize=_FS)
+    ax.set_xlabel('Test-time Δ', fontsize=_FS)
     ax.set_ylabel('Relative error (%)', fontsize=_FS)
     ax.legend(loc='upper right', fontsize=_FS - 1, framealpha=0.9, handlelength=1.8)
     ax.grid(True, which='both', alpha=0.25)
@@ -777,7 +726,7 @@ def make_fig_tides_ablation(clean_results, noisy_results, var_y):
                     MARKERS[name] + '-', color=COLORS[name], lw=1.8, ms=6, label=DISPLAY_NAMES.get(name, name))
         _log_dt_ticks(ax)
         ax.set_yscale('log')
-        ax.set_xlabel('Test-time Δt', fontsize=_FS)
+        ax.set_xlabel('Test-time Δ', fontsize=_FS)
         ax.set_ylabel('Relative error (%) — clean data', fontsize=_FS)
         ax.text(0.5, 1.01, panel_title, transform=ax.transAxes,
                 ha='center', va='bottom', fontsize=_FS, fontweight='bold')
@@ -859,12 +808,34 @@ def make_fig_reconstruction(recon_models):
 # MAIN
 # ═════════════════════════════════════════════════════════════════════════════
 
+def print_param_table():
+    print(f"{'Model':<18}  {'Params':>7}")
+    print('-' * 28)
+    for name, make in MODEL_FACTORIES.items():
+        print(f'{name:<18}  {sum(p.numel() for p in make().parameters()):>7d}')
+
+
 def main():
-    parser = argparse.ArgumentParser(description='Generate TIDES paper figures.')
+    global OUT_DIR, CACHE_DIR
+    parser = argparse.ArgumentParser(description='Fading Flash: train all models and draw the figures.')
     parser.add_argument('--retrain', action='store_true',
                         help='Ignore cache and retrain all models from scratch.')
+    parser.add_argument('--params', action='store_true',
+                        help='Print the parameter table and exit (no training).')
+    parser.add_argument('--steps', type=int, default=3000,
+                        help='Adam steps per model (batch 32, lr 3e-3); the paper uses 3000.')
+    parser.add_argument('--out_dir', default=str(_HERE / 'figures'))
+    parser.add_argument('--cache_dir', default=str(_HERE / 'cache'))
     args = parser.parse_args()
+    OUT_DIR, CACHE_DIR = Path(args.out_dir), Path(args.cache_dir)
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    TRAIN_CONFIG['n_steps'] = args.steps
 
+    if args.params:
+        print_param_table()
+        return
+
+    print_param_table()
     snap = load_or_train(retrain=args.retrain)
     models, noisy_models = restore_models(snap)
     results       = snap['results']
@@ -873,7 +844,7 @@ def main():
 
     # TIDES and TIDES Λ-only clean results (subset from full results dict)
     clean_ablation = {k: results[k] for k in ['TIDES', 'TIDES (Λ-only)']}
-    # recon uses the 4 MinimalSSM-based models (all except Real Mamba)
+    # recon uses the 4 MinimalSSM-based models (the Mamba ports have no explicit Λ)
     recon_models = {n: models[n] for n in ['S5', 'Mamba surrogate', 'TIDES', 'TIDES (Λ-only)']}
 
     print('\nGenerating figures...')
@@ -886,7 +857,11 @@ def main():
     _save(make_fig_tides_ablation(clean_ablation, noisy_results, var_y),
                                                                       'fig_tides_ablation')
     _save(make_fig_reconstruction(recon_models),                      'fig_reconstruction')
-    print('\nDone — 6 PDFs written to current directory.')
+    # The OOD panel with the whole Mamba lineage added
+    _save(make_fig_ood_error(results, var_y,
+              order=['S5', 'Mamba surrogate', 'TIDES', 'Mamba-1', 'Mamba-2', 'Mamba-3']),
+                                                                      'fig_ood_error_mamba')
+    print(f'\nDone — 8 PDFs written to {OUT_DIR}/')
 
 
 if __name__ == '__main__':
