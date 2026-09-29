@@ -20,3 +20,12 @@ mlruns/
 .DS_Store
 .vscode/
 .idea/
+
+# Data and outputs written by the scripts
+data/physiome_ode/
+data/fading_flash_hf/
+results/
+saved_models/
+fading_flash/cache/
+fading_flash/figures/
+.pytest_cache/

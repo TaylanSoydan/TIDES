@@ -13,13 +13,17 @@ import torch.nn as nn
 import torch.optim as optim
 import wandb
 
-from model_classification import DecoderTransformer
-from lstm_classification import LSTM_Classification
-from utils import get_dataset_preprocess, get_dataset, ComputeModelParams
-from sig_utils import ComputeSignatures
+# uea/ uses flat imports; put it (and the repo root, for `tides`) on the path so
+# both `python uea/main.py` and `python -m uea.main` work from the repo root.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
+sys.path.insert(0, os.path.join(_HERE, ".."))
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from tides import TIDESClassifier, step_scale_from_indices
+from model_classification import DecoderTransformer  # noqa: E402
+from lstm_classification import LSTM_Classification  # noqa: E402
+from utils import get_dataset_preprocess, get_dataset, ComputeModelParams  # noqa: E402
+from sig_utils import ComputeSignatures  # noqa: E402
+from tides import TIDESClassifier, step_scale_from_indices  # noqa: E402
 
 
 
@@ -39,7 +43,9 @@ def parse_args():
     )
     # Data and seeds
     parser.add_argument("--dataset", type=str, default="TSC_SelfRegulationSCP1", help="Dataset to use")
-    parser.add_argument("--n_seeds", type=int, default=4, help="Number of random seeds to try")
+    parser.add_argument("--data_dir", type=str, default=os.path.join(_HERE, "..", "data", "UEA_datasets"),
+                        help="Directory aeon reads / downloads the UEA datasets into")
+    parser.add_argument("--n_seeds", type=int, default=4, help="Number of random seeds (42, 43, ...)")
 
     # Model and training
     parser.add_argument("--model", choices=["transformer", "lstm", "tides"], default="transformer", help="Model type")
@@ -474,17 +480,19 @@ def main():
 
         
     seeds = [42 + i for i in range(config.n_seeds)]
-    results = []
-    
+    at_val, final = [], []
+
+    # The paper reports test accuracy at the epoch with the lowest validation
+    # loss ("test@val"), averaged over seeds; the last-epoch accuracy is shown too.
     for s in seeds:
-        _, _, acc = train_one_seed(config, s, device)
-        print(f"\nSeed {s} -> Final Test Accuracy: {acc*100:.2f}%\n")
-        results.append(acc)
-        
-    if len(results) > 1:
-        mean_acc = np.mean(results)
-        std_acc = np.std(results)
-        print(f"\nAverage Accuracy over {len(results)} seeds: {mean_acc*100:.2f}% (± {std_acc*100:.2f}%)")
+        _, test_at_val, final_acc = train_one_seed(config, s, device)
+        print(f"\nSeed {s} -> test@val: {test_at_val*100:.2f}%   last epoch: {final_acc*100:.2f}%\n")
+        at_val.append(test_at_val)
+        final.append(final_acc)
+
+    print(f"\n{config.dataset} over {len(seeds)} seed(s) {seeds}:")
+    print(f"  test@val   : {np.mean(at_val)*100:.2f}% ± {np.std(at_val)*100:.2f}%")
+    print(f"  last epoch : {np.mean(final)*100:.2f}% ± {np.std(final)*100:.2f}%")
 
 
 if __name__ == "__main__":

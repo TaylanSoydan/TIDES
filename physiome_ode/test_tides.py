@@ -15,6 +15,11 @@ import sys
 # Third-party
 import torch
 # Local
+import os
+# Put physiome_ode/ (flat imports) and the repo root (for `tides`) on the path,
+# so both `python physiome_ode/<script>.py` and `python -m physiome_ode.<script>` work.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path[:0] = [_HERE, os.path.join(_HERE, "..")]
 from tides.tides import TIDES
 #
 #                                                          Authorship & Credits

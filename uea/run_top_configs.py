@@ -140,7 +140,7 @@ def main():
     parser.add_argument("--top_k", type=int, default=10)
     parser.add_argument("--seeds", type=int, nargs="+", default=[43, 44, 45, 46])
     parser.add_argument("--early_stop_patience", type=int, default=30)
-    parser.add_argument("--data_dir", default="data_dir")
+    parser.add_argument("--data_dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "UEA_datasets"))
     parser.add_argument("--cache_dir", default="eval_cache")
     parser.add_argument("--output_csv", default="eval_results.csv")
     parser.add_argument("--wandb_project", default="tides-anon")

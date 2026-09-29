@@ -33,6 +33,10 @@ import torch
 from torch import Tensor, jit
 from torch.optim import AdamW
 # Local
+# Put physiome_ode/ (flat imports) and the repo root (for `tides`) on the path,
+# so both `python physiome_ode/<script>.py` and `python -m physiome_ode.<script>` work.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path[:0] = [_HERE, os.path.join(_HERE, "..")]
 from tides.tides_collate import tides_collate
 from tides.tides_forecasting import TIDESForecastingModel
 from utils import get_data_loaders, IMTS_dataset  # noqa: F401

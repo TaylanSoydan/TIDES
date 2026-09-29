@@ -350,7 +350,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--datasets", nargs="+", default=["TSC_SelfRegulationSCP1"],
                         help="Dataset(s) to search over (must share the same grid)")
-    parser.add_argument("--data_dir", default="data_dir",
+    parser.add_argument("--data_dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "UEA_datasets"),
                         help="Root data directory (passed to get_dataset_preprocess)")
     parser.add_argument("--early_stop_patience", type=int, default=30,
                         help="Early stopping patience in epochs (0 = disabled)")

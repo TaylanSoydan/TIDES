@@ -49,3 +49,11 @@ These are referenced by URL only and are NOT redistributed in this repository. R
 ## Code license for this repository
 
 All source code under this repository is released under the MIT License (see `LICENSE`), with the exception of files whose headers explicitly attribute external authorship.
+
+### Mamba, Mamba-2 and Mamba-3 (baselines)
+
+* Source: https://github.com/state-spaces/mamba (commit e9594ce, v2.3.2.post1)
+* License: Apache-2.0
+* Use: `baselines/mamba_blocks.py` ports the Mamba, Mamba2 and Mamba3 (SISO) modules
+  and the recurrences of their kernels to PyTorch; `baselines/mamba_classifier.py`
+  calls the original `mamba_ssm` modules when they are installed.

@@ -26,6 +26,10 @@ import optuna
 import wandb
 from optuna.trial import TrialState
 
+# Put physiome_ode/ (flat imports) and the repo root (for `tides`) on the path,
+# so both `python physiome_ode/<script>.py` and `python -m physiome_ode.<script>` work.
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path[:0] = [_HERE, os.path.join(_HERE, "..")]
 from tides_train_fn import train_tides
 from utils import IMTS_dataset  # noqa: F401 — pickle deserialization
 

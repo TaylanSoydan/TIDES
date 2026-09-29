@@ -1,18 +1,30 @@
-# PyTorch backbone for TIDES (UEA classification + Physiome-ODE forecasting).
+# TIDES model, UEA classification, Physiome-ODE forecasting, Fading Flash.
 torch>=2.4
 numpy>=1.26
 scipy>=1.13
 pandas>=2.2
-
-# Hyperparameter search and bookkeeping.
-optuna>=3.6
+scikit-learn>=1.5
 pyyaml>=6.0
 tqdm>=4.66
+matplotlib>=3.8
+
+# Hyperparameter search; wandb logging is optional and off unless requested.
+optuna>=3.6
 wandb>=0.17
 
-# UEA dataset loading and signature features (RFormer baselines).
+# UEA dataset loading, and path signatures for the RFormer baseline.
 aeon>=1.0
 iisignature>=0.24
-sktime>=0.30
-scikit-learn>=1.5
 
+# Hugging Face Hub: TIDESClassifier.from_pretrained / push_to_hub, and the
+# static Fading Flash dataset export (fading_flash/make_hf_dataset.py).
+huggingface_hub>=0.25
+safetensors>=0.4
+pyarrow>=15
+
+# Tests (pytest tests/).
+pytest>=7
+
+# Optional, only for the Mamba-1/Mamba-2 baselines on GPU: mamba-ssm and
+# causal-conv1d, matched to your torch/CUDA build.  See the README section
+# "Mamba baselines".  Mamba-3 and the CPU ports need nothing extra.
