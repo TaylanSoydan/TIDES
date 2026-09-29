@@ -61,7 +61,7 @@ sys.path.insert(0, os.path.join(_HERE, ".."))
 from aeon.datasets import load_classification  # noqa: E402
 
 from tides import TIDESClassifier, step_scale_from_indices  # noqa: E402
-from baselines.mamba_classifier import MambaClassifier  # noqa: E402
+from baselines.mamba_classifier import MambaClassifier, resolve_backend  # noqa: E402
 
 DATASET = "EigenWorms"
 NUM_CLASSES = 5
@@ -313,8 +313,12 @@ def main():
         cfg = CONFIGS[name]
         hp = train_settings(cfg)
         sig_dim = signature_dim(cfg) if cfg["kind"] == "rformer" else None
+        backend = ""
+        if cfg["kind"] == "mamba":
+            backend = ("  backend=port (chunked scan)" if cfg["variant"] == "mamba3"
+                       else f"  backend={resolve_backend(args.mamba_backend)}")
         print(f"\n{'=' * 60}\n{name}  lr={hp['lr']} wd={hp['weight_decay']} "
-              f"batch={hp['batch_size']}\n{'=' * 60}")
+              f"batch={hp['batch_size']}{backend}\n{'=' * 60}")
         for seed in args.seeds:
             torch.manual_seed(seed)
             np.random.seed(seed)

@@ -17,6 +17,9 @@ Mamba-3 always uses the port with the chunked scan: its official SISO kernel
 needs a Hopper GPU (TMA tensor descriptors), see baselines/mamba_blocks.py.
 """
 
+import importlib.util
+import warnings
+
 import torch
 import torch.nn as nn
 
@@ -30,9 +33,19 @@ def _official_available() -> bool:
         return False
     try:
         import mamba_ssm  # noqa: F401
-    except ImportError:
+    except ImportError as e:
+        if importlib.util.find_spec("mamba_ssm") is not None:
+            warnings.warn(f"mamba_ssm is installed but does not import ({e}); "
+                          "using the PyTorch ports")
         return False
     return True
+
+
+def resolve_backend(backend: str = "auto") -> str:
+    """'auto' -> 'mamba_ssm' when CUDA and mamba_ssm are available, else 'port'."""
+    if backend == "auto":
+        return "mamba_ssm" if _official_available() else "port"
+    return backend
 
 
 def build_mixer(variant: str, d_model: int, d_state: int, expand: int,
@@ -44,8 +57,7 @@ def build_mixer(variant: str, d_model: int, d_state: int, expand: int,
         return Mamba3Block(d_model=d_model, d_state=d_state, expand=expand,
                            headdim=headdim, rope_fraction=rope_fraction,
                            scan="chunked", chunk_size=chunk_size)
-    if backend == "auto":
-        backend = "mamba_ssm" if _official_available() else "port"
+    backend = resolve_backend(backend)
     if backend == "port":
         if variant == "mamba":
             return Mamba1Block(d_model=d_model, d_state=d_state, d_conv=d_conv,
