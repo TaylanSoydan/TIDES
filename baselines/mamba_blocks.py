@@ -1,12 +1,17 @@
 """PyTorch ports of the official Mamba-1, Mamba-2 and Mamba-3 blocks.
 
-Line-by-line ports of state-spaces/mamba @ e9594ce (v2.3.2.post1,
+Line-by-line ports of state-spaces/mamba @ e9594ce (main, 2026-07-22;
 https://github.com/state-spaces/mamba, Apache-2.0; the ported functions keep
 upstream's structure and cite the upstream file and line they follow), used by the
 Fading Flash toy (fading_flash/) and, for Mamba-3, by the EigenWorms drop-rate
 experiment (uea/droprate.py).  They run on CPU, need no compiled kernels, and
 have parameter shapes 1:1 with the official modules (the gated RMSNorms are
 flat parameters here: norm_weight, B_norm_weight, C_norm_weight).
+
+Mamba-1 and Mamba-2 are identical at e9594ce and in the 2.3.2.post1 release on
+PyPI.  Mamba-3 is not: upstream #962 (2026-06-01) replaced softplus with a
+heavy-tail activation for the data-dependent A.  Mamba3Block has both
+(a_activation="softplus", the release and the default, or "heavy_tail").
 
 Why ports rather than imports: mamba_ssm's Mamba-2 and Mamba-3 modules import
 their Triton kernels at module level, so they cannot even be imported without a
@@ -54,7 +59,7 @@ def rms_norm_gated(x, weight, eps, z=None, group_size=None, norm_before_gate=Fal
 
 
 def heavy_tail_activation(x):
-    """mamba_ssm/modules/mamba3.py:28 — f(x) = 1+x for x>=0, 1/(1-x) for x<0."""
+    """mamba_ssm/modules/mamba3.py:28 at e9594ce — f(x) = 1+x for x>=0, 1/(1-x) for x<0."""
     neg = x.clamp_max(0)
     pos = x.clamp_min(0)
     return pos + torch.reciprocal(1 - neg)
@@ -387,11 +392,15 @@ class Mamba3Block(nn.Module):
     """
 
     def __init__(self, d_model, d_state=4, expand=1, headdim=None, ngroups=1,
-                 rope_fraction=0.5, A_floor=1e-4, scan="chunked", chunk_size=64):
+                 rope_fraction=0.5, A_floor=1e-4, scan="chunked", chunk_size=64,
+                 a_activation="softplus"):
         super().__init__()
         if scan not in ("chunked", "sequential"):
             raise ValueError(f"scan must be 'chunked' or 'sequential', got {scan!r}")
+        if a_activation not in ("softplus", "heavy_tail"):
+            raise ValueError(f"a_activation must be 'softplus' or 'heavy_tail', got {a_activation!r}")
         self.scan = scan
+        self.a_activation = a_activation
         self.chunk_size = chunk_size
         self.d_model = d_model
         self.d_state = d_state
@@ -451,7 +460,9 @@ class Mamba3Block(nn.Module):
         Bm = Bm.reshape(B_, L_, self.num_bc_heads, self.d_state)
         Cm = Cm.reshape(B_, L_, self.num_bc_heads, self.d_state)
 
-        _A = -heavy_tail_activation(dd_A.float())
+        # mamba3.py:169 in the 2.3.2.post1 release, :194 at e9594ce
+        act = F.softplus if self.a_activation == "softplus" else heavy_tail_activation
+        _A = -act(dd_A.float())
         _A = torch.clamp(_A, max=-self.A_floor)          # (b, l, nheads)
         DT = F.softplus(dd_dt + self.dt_bias)            # (b, l, nheads)
 

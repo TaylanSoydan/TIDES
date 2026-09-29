@@ -250,7 +250,8 @@ def make_Mamba2():
 
 
 def make_Mamba3():
-    return MambaNForTask(Mamba3Block(d_model=4, d_state=4, expand=1))
+    # upstream main's heavy-tail A (e9594ce), as in the paper's runs
+    return MambaNForTask(Mamba3Block(d_model=4, d_state=4, expand=1, a_activation='heavy_tail'))
 
 
 MODEL_FACTORIES = {

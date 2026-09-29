@@ -47,6 +47,19 @@ def test_block_scans_agree():
         torch.testing.assert_close(seq(u), chk(u), rtol=1e-5, atol=1e-6)
 
 
+def test_a_activation():
+    """softplus (the 2.3.2.post1 release) and heavy_tail (upstream main) are different models."""
+    torch.manual_seed(0)
+    sp = Mamba3Block(d_model=8, d_state=8, expand=2, headdim=8)
+    ht = Mamba3Block(d_model=8, d_state=8, expand=2, headdim=8, a_activation="heavy_tail")
+    ht.load_state_dict(sp.state_dict())
+    u = torch.randn(2, 20, 8)
+    with torch.no_grad():
+        assert (sp(u) - ht(u)).abs().max() > 1e-4
+    with pytest.raises(ValueError):
+        Mamba3Block(d_model=8, d_state=8, a_activation="relu")
+
+
 @pytest.mark.parametrize("variant", ["mamba", "mamba2", "mamba3"])
 def test_classifier_port_backend(variant):
     torch.manual_seed(0)

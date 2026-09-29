@@ -120,6 +120,13 @@ def check_mamba2(device, d_model, d_state, expand, d_conv, headdim, seqlen, tag)
         m2.causal_conv1d_fn = conv_fn
 
 
+def installed_a_activation():
+    """Which A activation the installed Mamba3 uses: softplus up to the 2.3.2.post1
+    release, heavy_tail on upstream main since #962."""
+    import mamba_ssm.modules.mamba3 as m3
+    return 'heavy_tail' if hasattr(m3, 'heavy_tail_activation') else 'softplus'
+
+
 def check_mamba3_prekernel(device, d_model, d_state, expand, headdim, seqlen, tag):
     import mamba_ssm.modules.mamba3 as m3
     torch.manual_seed(0)
@@ -128,7 +135,7 @@ def check_mamba3_prekernel(device, d_model, d_state, expand, headdim, seqlen, ta
     ports = {}
     for scan in ('sequential', 'chunked'):
         port = P.Mamba3Block(d_model=d_model, d_state=d_state, expand=expand,
-                             headdim=headdim, scan=scan)
+                             headdim=headdim, scan=scan, a_activation=installed_a_activation())
         missing, unexpected = port.load_state_dict(
             remap(official.state_dict(), {'B_norm.weight': 'B_norm_weight',
                                           'C_norm.weight': 'C_norm_weight'}), strict=False)
@@ -169,7 +176,8 @@ def check_mamba3_end_to_end(device, d_model, d_state, expand, headdim, seqlen, t
     torch.manual_seed(0)
     official = Mamba3(d_model=d_model, d_state=d_state, expand=expand, headdim=headdim,
                       ngroups=1).to(device)
-    port = P.Mamba3Block(d_model=d_model, d_state=d_state, expand=expand, headdim=headdim)
+    port = P.Mamba3Block(d_model=d_model, d_state=d_state, expand=expand, headdim=headdim,
+                         a_activation=installed_a_activation())
     port.load_state_dict(remap(official.state_dict(), {'B_norm.weight': 'B_norm_weight',
                                                         'C_norm.weight': 'C_norm_weight'}),
                          strict=False)
@@ -187,7 +195,8 @@ def main():
     import mamba_ssm
     cap = torch.cuda.get_device_capability()
     print(f'torch {torch.__version__}  mamba_ssm {mamba_ssm.__version__}  '
-          f'{torch.cuda.get_device_name(0)} (sm_{cap[0]}{cap[1]})\n')
+          f'{torch.cuda.get_device_name(0)} (sm_{cap[0]}{cap[1]})  '
+          f'Mamba-3 A activation: {installed_a_activation()}\n')
 
     results = {
         'Mamba-1 toy': check_mamba1(device, 4, 3, 1, 3, 40, 'toy (d_model 4, d_state 3)'),
