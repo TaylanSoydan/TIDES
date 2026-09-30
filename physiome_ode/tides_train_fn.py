@@ -1,7 +1,6 @@
 """Importable training function for TIDES on Physiome-ODE.
 
-Used by hypersearch_physio.py (and callable standalone).
-train_tides.py remains the CLI entry-point.
+Used by run_final_folds.py (and callable standalone).
 
 Functions
 ---------
@@ -43,21 +42,6 @@ __credits__ = ['Anonymous']
 __status__ = 'Development'
 # =============================================================================
 #
-# =============================================================================
-class MaxParamsExceeded(Exception):
-    def __init__(self, n_params, max_params):
-        super().__init__(
-            f'Model has {n_params:,} params > '
-            f'max_params={max_params:,}')
-        self.n_params = n_params
-
-
-class MinParamsExceeded(Exception):
-    def __init__(self, n_params, min_params):
-        super().__init__(
-            f'Model has {n_params:,} params < '
-            f'min_params={min_params:,}')
-        self.n_params = n_params
 # =============================================================================
 
 
@@ -166,9 +150,7 @@ def train_tides(
         seed=0,
         saved_models_dir='saved_models',
         verbose=True,
-        wandb_run=None,
-        min_params=None,
-        max_params=None):
+        wandb_run=None):
     """Train TIDES on one dataset/fold and return metrics.
 
     Parameters
@@ -246,12 +228,6 @@ def train_tides(
     wandb_run : {wandb.sdk.wandb_run.Run, None}, default=None
         Optional active wandb run. If provided, logs val_loss per epoch
         and final test metrics.
-    min_params : {int, None}, default=None
-        Skip training and raise ``MinParamsExceeded`` when the model
-        has fewer trainable parameters than this threshold.
-    max_params : {int, None}, default=None
-        Skip training and raise ``MaxParamsExceeded`` when the model
-        has more trainable parameters than this threshold.
 
     Returns
     -------
@@ -322,11 +298,6 @@ def train_tides(
 
     if wandb_run is not None:
         wandb_run.summary['num_params'] = num_params
-
-    if max_params is not None and num_params > max_params:
-        raise MaxParamsExceeded(num_params, max_params)
-    if min_params is not None and num_params < min_params:
-        raise MinParamsExceeded(num_params, min_params)
 
     # Sanity check
     with torch.no_grad():

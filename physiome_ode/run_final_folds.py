@@ -8,13 +8,6 @@ dataset; see docs/reproducibility.md):
     python physiome_ode/run_final_folds.py --winner HOD01
     python physiome_ode/run_final_folds.py --winner hodgkin_huxley_1952_variant01
 
-From an Optuna study written by hypersearch_physio.py:
-
-    python physiome_ode/run_final_folds.py \\
-        --dataset hodgkin_huxley_1952_variant01 \\
-        --storage sqlite:///results/hypersearch.db \\
-        --study_name tides_physio_hodgkin_huxley_1952_variant01_f0
-
 Or with hyperparameters given by hand (any flag also overrides --winner):
 
     python physiome_ode/run_final_folds.py \\
@@ -83,22 +76,6 @@ def load_winner(name: str) -> tuple:
     raise SystemExit(f"{name!r} is not a code or dataset name in {WINNERS_CSV}")
 
 
-def load_best_params_from_optuna(storage: str, study_name: str) -> dict:
-    import optuna
-    p = optuna.load_study(study_name=study_name, storage=storage).best_params
-    parts = p["mode_combo"].split("/")
-    if len(parts) == 3:
-        lambda_re_mode, lambda_im_mode, bc_mode = parts
-    else:
-        lambda_re_mode, bc_mode = parts
-        lambda_im_mode = lambda_re_mode
-    hp = {k: _cast(k, p[k]) for k in HP_TYPES if k in p}
-    hp.update(lambda_re_mode=lambda_re_mode, lambda_im_mode=lambda_im_mode, bc_mode=bc_mode)
-    if "ssm_size" not in p:
-        hp["ssm_size"] = 2 * p["ssm_blocks"] * p["ssm_dim_mult"]
-    return hp
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Run 5 folds of TIDES on one Physiome-ODE dataset",
@@ -114,48 +91,30 @@ def main():
     parser.add_argument("--saved_models_dir", default="saved_models", type=str)
     parser.add_argument("--wandb_mode", default="disabled", choices=["disabled", "offline", "online"],
                         help="Weights & Biases logging (off unless asked for)")
-    # Optuna study
-    parser.add_argument("--storage", default=None, type=str, help="Optuna storage URL")
-    parser.add_argument("--study_name", default=None, type=str, help="Optuna study name")
-    # Manual hyperparameters; any flag given overrides --winner / the study
+    # Manual hyperparameters; any flag given overrides --winner
     for key, kind in HP_TYPES.items():
         if kind is bool:
             parser.add_argument(f"--{key}", default=None, type=lambda v: _cast("bidir", v),
                                 metavar="{true,false}")
         else:
             parser.add_argument(f"--{key}", default=None, type=kind if kind is not int else float)
-    parser.add_argument("--ssm_dim_mult", default=None, type=int,
-                        help="Alternative to --ssm_size: ssm_size = 2 * ssm_blocks * ssm_dim_mult")
-    parser.add_argument("--mode_combo", default=None, type=str,
-                        help="lambda_re/lambda_im/bc modes, e.g. input_dependent/lti/input_dependent")
     args = parser.parse_args()
 
-    # ── Collect hyperparameters: defaults < winner / study < explicit flags ──
+    # ── Collect hyperparameters: defaults < winner < explicit flags ──
     hp = dict(DEFAULTS)
     dataset = args.dataset
     if args.winner:
         dataset, winner_hp = load_winner(args.winner)
         hp.update(winner_hp)
         print(f"Using the winning configuration for {args.winner} from {WINNERS_CSV}")
-    elif args.storage and args.study_name:
-        print(f"Loading best params from study '{args.study_name}'...")
-        hp.update(load_best_params_from_optuna(args.storage, args.study_name))
     if args.dataset:
         dataset = args.dataset
     if dataset is None:
-        parser.error("give --winner, or --dataset (with --storage/--study_name or manual flags)")
+        parser.error("give --winner, or --dataset with the hyperparameters as flags")
     for key in HP_TYPES:
         if getattr(args, key) is not None:
             hp[key] = _cast(key, getattr(args, key))
-    if args.mode_combo:
-        parts = args.mode_combo.split("/")
-        hp["lambda_re_mode"], hp["bc_mode"] = parts[0], parts[-1]
-        hp["lambda_im_mode"] = parts[1] if len(parts) == 3 else parts[0]
-    if "ssm_size" not in hp:
-        if args.ssm_dim_mult is None or "ssm_blocks" not in hp:
-            parser.error("give --ssm_size (or --ssm_blocks and --ssm_dim_mult)")
-        hp["ssm_size"] = 2 * hp["ssm_blocks"] * args.ssm_dim_mult
-    missing = [k for k in ("hidden_size", "ssm_blocks", "num_blocks") if k not in hp]
+    missing = [k for k in ("hidden_size", "ssm_size", "ssm_blocks", "num_blocks") if k not in hp]
     if missing:
         parser.error(f"missing hyperparameters: {missing}")
 

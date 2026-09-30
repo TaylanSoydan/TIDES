@@ -2,7 +2,8 @@
 
 The commands below rerun each experiment in the paper.  The configuration
 files they read are the single source of truth; the tables here are generated
-from them.
+from them.  The configurations are the ones found by the hyperparameter searches
+described in the paper; the search code is not part of this repository.
 
 ## UEA classification (Table 1)
 
@@ -26,13 +27,7 @@ over the five seeds; `main.py` prints it at the end of the run.
 | `HB.yaml` | Heartbeat | 0.000332 | 0.1 | 64 | 16 | 4 | 4 | 0 | 0 | exp | zoh | 0.1 | 20 | 8 | ✓ | – | 400 |
 
 All six use input-dependent Re(Λ) and B, C, LTI Im(Λ), ZOH, `dt_min` 0.001,
-`dt_max` 0.1, `ff_mult` 1, RMSNorm on the projections.  The RFormer baseline
-configurations (Moreno-Pino et al., 2024) are in `uea/configs/rformer/`.
-
-To rerun the hyperparameter search: `python uea/hypersearch.py --help` (Optuna,
-maximising validation accuracy), then `python uea/run_top_configs.py` to rerun the
-best trials on more seeds.  Both select by validation accuracy; test accuracy is
-only reported.
+`dt_max` 0.1, `ff_mult` 1, RMSNorm on the projections.
 
 ## Physiome-ODE forecasting (Table 2)
 
@@ -102,8 +97,6 @@ behind the paper's numbers read it as an integer.
 | WOL01 | `wolf_passarge_somsen_snoep_heinrich_westerhoff_2000` | 1.44e-05 | 244 | 4.74e-07 | 48 | 4 | 2 | 11 | 2 | 0 | standard | zoh | 0.25 | 64 | 20 | 3 | ✓ | – | 10 | random |
 | WOL02 | `wolf_heinrich_2000` | 1.11e-05 | 129 | 8.02e-05 | 32 | 12 | 1 | 8 | 0 | 0 | exp | zoh | 0.15 | 48 | 2 | 1 | ✓ | – | 10 | zeros |
 | WOL03 | `wolf_sohn_heinrich_kuriyama_2001` | 3.27e-05 | 252 | 2.14e-06 | 80 | 20 | 1 | 6 | 1 | 0 | exp | bilinear | 0.05 | 96 | 6 | 2 | ✓ | ✓ | 5 | zeros |
-
-To rerun a search: `python physiome_ode/hypersearch_physio.py --dataset <name> --fold 0 --num_trials 10`.
 
 ## Drop-rate generalisation on EigenWorms (Figure 6, drop-rate table)
 

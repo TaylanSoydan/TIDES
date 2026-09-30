@@ -4,7 +4,6 @@
 # epoch with the lowest validation loss ("test@val"), mean +- std over seeds.
 #   python uea/main.py --config uea/configs/tides/MI.yaml
 dataset: TSC_MotorImagery
-model: tides
 n_seeds: 5
 epoch: 200
 early_stop_patience: 30

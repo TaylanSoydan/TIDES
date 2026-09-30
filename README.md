@@ -91,7 +91,9 @@ model = TIDESClassifier.from_pretrained("<user>/tides-eigenworms")
 
 ## Reproducing the results
 
-Every configuration used in the paper is in `docs/reproducibility.md`.
+Every configuration used in the paper is in `docs/reproducibility.md`.  They
+are the configurations found by the hyperparameter searches described in the
+paper; the search code is not part of this repository.
 
 ### UEA classification (Table 1)
 
@@ -102,8 +104,7 @@ python uea/main.py --config uea/configs/tides/EW.yaml    # likewise SCP1, SCP2, 
 Five seeds (42-46) on a 70/15/15 random re-split each; the script ends with
 test accuracy at the best-validation epoch, mean ± std over seeds.  Datasets
 download automatically via `aeon` into `data/UEA_datasets/` (`--data_dir` to
-change).  The RFormer baseline configurations are in `uea/configs/rformer/`;
-`uea/hypersearch.py` and `uea/run_top_configs.py` rerun the search.
+change).
 
 ### Physiome-ODE forecasting (Table 2)
 
@@ -116,12 +117,7 @@ python physiome_ode/run_final_folds.py --winner HOD01    # dataset code or name,
 ```
 
 runs the five folds with that dataset's configuration from
-`physiome_ode/configs/winners.csv`.  To rerun the Optuna search:
-
-```bash
-python physiome_ode/hypersearch_physio.py --dataset hodgkin_huxley_1952_variant01 \
-    --fold 0 --num_trials 10 --data_base_path data/physiome_ode
-```
+`physiome_ode/configs/winners.csv`.
 
 ### Drop-rate generalisation on EigenWorms (Figure 6)
 

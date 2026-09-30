@@ -8,11 +8,11 @@ pyyaml>=6.0
 tqdm>=4.66
 matplotlib>=3.8
 
-# Hyperparameter search; wandb logging is optional and off unless requested.
-optuna>=3.6
+# Optional wandb logging for Physiome-ODE runs (off unless requested).
 wandb>=0.17
 
-# UEA dataset loading, and path signatures for the RFormer baseline.
+# UEA dataset loading, and path signatures for the RFormer row of the
+# drop-rate experiment.
 aeon>=1.0
 iisignature>=0.24
 
