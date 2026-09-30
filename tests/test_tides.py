@@ -73,8 +73,7 @@ def test_forecasting_hub_round_trip(tmp_path):
     pytest.importorskip("huggingface_hub")
     from tides import TIDESForecastingModel
     _seed()
-    m = TIDESForecastingModel(d_input=3, d_hidden=8, ssm_size=8, ssm_blocks=2, num_blocks=1,
-                              conj_sym=False, proj_norm="rmsnorm").eval()
+    m = TIDESForecastingModel(d_input=3, d_hidden=8, ssm_size=8, ssm_blocks=2, num_blocks=1).eval()
     m.save_pretrained(tmp_path)
     loaded = TIDESForecastingModel.from_pretrained(tmp_path).eval()
     values, steps = torch.randn(2, 12, 3), torch.rand(2, 12)

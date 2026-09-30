@@ -20,7 +20,7 @@ class TIDESForecastingModel(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-
     Args:
         d_input:              Number of input/output channels (D).
         d_hidden:             Hidden dimension for TIDES blocks (H).
-        ssm_size:             SSM state dimension (N before conj_sym halving).
+        ssm_size:             SSM state dimension (P).
         ssm_blocks:           Number of parallel SSM sub-blocks per layer.
         num_blocks:           Number of stacked TIDESBlock layers.
         encoder_depth:        Number of GLU residual layers in the input encoder.
@@ -28,11 +28,16 @@ class TIDESForecastingModel(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-
         lambda_im_mode:       "lti" | "input_dependent"
         bc_mode:              "lti" | "input_dependent"
         lambda_encoder_depth: GLU depth for the lambda input-projection.
-
-        learn_lambda:         "standard" | "exp" | "stable"
+        bc_rank:              Rank of the low-rank B/C projector heads (>= 1).
+        ff_mult:              GLU expansion factor in each block.
+        learn_lambda:         "standard" | "exp" | "stable" | "softplus"
         discretization:       "zoh" | "bilinear"
         drop_rate:            Dropout probability.
         dt_min, dt_max:       Range for log_step initialization.
+        bidir:                Bidirectional scan.
+        clip_eigs:            Clip Re(Lambda) to be strictly negative.
+        proj_init_method:     "zeros" | "random" init of the projector weights.
+        proj_norm:            "rmsnorm" on the projector outputs, or None.
     """
 
     def __init__(
@@ -55,11 +60,9 @@ class TIDESForecastingModel(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-
         dt_min: float = 0.001,
         dt_max: float = 0.1,
         bidir: bool = False,
-        conj_sym: bool = True,
         clip_eigs: bool = False,
-        conv_kernel_size: int = 0,
         proj_init_method: str = "zeros",
-        proj_norm: str = None,
+        proj_norm: str = "rmsnorm",
     ):
         super().__init__()
         self.tides = TIDES(
@@ -81,9 +84,7 @@ class TIDESForecastingModel(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-
             dt_min=dt_min,
             dt_max=dt_max,
             bidir=bidir,
-            conj_sym=conj_sym,
             clip_eigs=clip_eigs,
-            conv_kernel_size=conv_kernel_size,
             proj_init_method=proj_init_method,
             proj_norm=proj_norm,
         )

@@ -81,7 +81,7 @@ SSM_BASE = dict(
     discretization="zoh", learn_lambda="stable",
     bidir=True, encoder_depth=0, lambda_encoder_depth=0,
     bc_rank=16, drop_rate=0.0, proj_norm="rmsnorm",
-    clip_eigs=True, conj_sym=False,
+    clip_eigs=True,
     dt_min=0.001, dt_max=0.1, ff_mult=1.0,
 )
 SSM_TRAIN = dict(lr=1e-3, weight_decay=0.1, batch_size=10)

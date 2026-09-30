@@ -134,11 +134,9 @@ def train_tides(
         drop_rate=0.0,
         dt_min=0.001,
         dt_max=0.1,
-        conj_sym=True,
         clip_eigs=False,
-        conv_kernel_size=0,
         proj_init_method='zeros',
-        proj_norm=None,
+        proj_norm='rmsnorm',
         # training
         lr=0.001,
         weight_decay=0.001,
@@ -195,16 +193,12 @@ def train_tides(
         Minimum dt.
     dt_max : float, default=0.1
         Maximum dt.
-    conj_sym : bool, default=True
-        Whether to enforce conjugate symmetry.
     clip_eigs : bool, default=False
         Whether to clip eigenvalues.
-    conv_kernel_size : int, default=0
-        Convolution kernel size.
     proj_init_method : str, default='zeros'
         Projection initialization method.
-    proj_norm : {str, None}, default=None
-        Projection normalization method.
+    proj_norm : {'rmsnorm', None}, default='rmsnorm'
+        RMSNorm on the projector outputs, or None for none.
     lr : float, default=0.001
         Learning rate.
     weight_decay : float, default=0.001
@@ -283,9 +277,7 @@ def train_tides(
         drop_rate=drop_rate,
         dt_min=dt_min,
         dt_max=dt_max,
-        conj_sym=conj_sym,
         clip_eigs=clip_eigs,
-        conv_kernel_size=conv_kernel_size,
         proj_init_method=proj_init_method,
         proj_norm=proj_norm,
     )

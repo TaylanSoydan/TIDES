@@ -71,7 +71,7 @@ def parse_args():
     parser.add_argument("--tides_lambda_re_mode", choices=["lti", "input_dependent"], default="lti", help="TIDES Lambda real mode")
     parser.add_argument("--tides_lambda_im_mode", choices=["lti", "input_dependent"], default="lti", help="TIDES Lambda imaginary mode")
     parser.add_argument("--tides_bc_mode", choices=["lti", "input_dependent"], default="lti", help="TIDES B/C mode")
-    parser.add_argument("--tides_bc_rank", type=int, default=8, help="TIDES B/C low-rank factor (0=full, <0=diagonal)")
+    parser.add_argument("--tides_bc_rank", type=int, default=8, help="TIDES rank of the low-rank B/C projectors (>= 1)")
     parser.add_argument("--tides_drop_rate", type=float, default=0.05, help="TIDES dropout rate inside blocks")
     parser.add_argument("--tides_learn_lambda", choices=["standard", "exp", "stable", "softplus"], default="standard", help="TIDES Lambda reparameterization")
     parser.add_argument("--tides_encoder_depth", type=int, default=1, help="TIDES GLU layers in input encoder")

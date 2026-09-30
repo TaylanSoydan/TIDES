@@ -43,7 +43,7 @@ HP_TYPES = {
     "lambda_re_mode": str, "lambda_im_mode": str, "bc_mode": str,
     "learn_lambda": str, "discretization": str, "proj_init_method": str,
     "proj_norm": str, "drop_rate": float, "dt_min": float, "ff_mult": float,
-    "bidir": bool, "clip_eigs": bool, "conj_sym": bool,
+    "bidir": bool, "clip_eigs": bool,
     "lr": float, "lr_factor": int, "warmup_epochs": int,
     "weight_decay": float, "batch_size": int,
 }
@@ -53,7 +53,7 @@ DEFAULTS = {
     "bc_mode": "input_dependent", "learn_lambda": "standard",
     "discretization": "zoh", "proj_init_method": "zeros", "proj_norm": "rmsnorm",
     "drop_rate": 0.0, "dt_min": 0.001, "ff_mult": 1.0, "bidir": False,
-    "clip_eigs": False, "conj_sym": False, "lr": 1e-3, "lr_factor": 1,
+    "clip_eigs": False, "lr": 1e-3, "lr_factor": 1,
     "warmup_epochs": 0, "weight_decay": 1e-3, "batch_size": 32,
 }
 

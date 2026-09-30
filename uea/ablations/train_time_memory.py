@@ -3,17 +3,17 @@ Ablation: training-step wall time and peak GPU memory for TIDES vs RFormer
 across sequence lengths and channel counts.
 
 Grid:
-    seq_lens : 1_000, 10_000, 100_000, 1_000_000
-    channels : 1, 10, 100
+    seq_lens : 1_000, 5_000, 10_000, 50_000, 100_000
+    channels : 1
 
 Protocol:
-    - batch_size = 1
-    - 2 warmup steps (discarded), then 10 measured steps averaged
+    - batch_size = 8, 4 layers, ~100k parameters for both models
+    - 5 warmup steps (discarded), then 20 measured steps averaged
     - peak GPU memory reset before each timed block
     - Each config runs in an isolated subprocess so SLURM OOM kills are
       caught gracefully by the parent and logged as OOM.
 
-Output: ablations/results_time_memory.csv
+Output: uea/ablations/results_time_memory.csv
 """
 
 import csv
@@ -70,7 +70,7 @@ def _worker(model_name: str, seq_len: int, channels: int):
             d_hidden=TIDES_HIDDEN, ssm_size=TIDES_SSM_SIZE,
             ssm_blocks=TIDES_BLOCKS, num_blocks=TIDES_NUM_BLOCKS,
             lambda_re_mode="input_dependent", lambda_im_mode="lti",
-            bc_mode="input_dependent", conj_sym=False, clip_eigs=False,
+            bc_mode="input_dependent", clip_eigs=False,
             proj_norm="rmsnorm",
         ).to(device)
 

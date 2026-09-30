@@ -128,14 +128,11 @@ parser.add_argument(
     '-dset', '--dataset', required=True, type=str,
     help='name of the dataset')
 parser.add_argument(
-    '-ck', '--conv-kernel-size', default=0, type=int,
-    help='causal conv kernel size (0=off)')
-parser.add_argument(
     '-pi', '--proj-init-method', default='zeros', type=str,
     help='zeros|random')
 parser.add_argument(
-    '-pn', '--proj-norm', default=None, type=str,
-    help='None|rmsnorm')
+    '-pn', '--proj-norm', default='rmsnorm', type=str,
+    help='rmsnorm|none')
 parser.add_argument(
     '-n', '--note', default='', type=str, help='optional note')
 
@@ -281,9 +278,8 @@ MODEL_CONFIG = {
     'drop_rate':            ARGS.drop_rate,
     'dt_min':               ARGS.dt_min,
     'dt_max':               ARGS.dt_max,
-    'conv_kernel_size':     ARGS.conv_kernel_size,
     'proj_init_method':     ARGS.proj_init_method,
-    'proj_norm':            ARGS.proj_norm,
+    'proj_norm':            None if ARGS.proj_norm.lower() == 'none' else ARGS.proj_norm,
 }
 
 MODEL = TIDESForecastingModel(**MODEL_CONFIG).to(DEVICE)

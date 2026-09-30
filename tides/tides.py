@@ -151,18 +151,18 @@ def _init_log_steps(H: int, dt_min: float, dt_max: float) -> torch.Tensor:
     return torch.empty(H).uniform_(math.log(dt_min), math.log(dt_max))
 
 
-def _init_B(local_P: int, H: int, Vinv: np.ndarray) -> torch.Tensor:
+def _init_B(P: int, H: int, Vinv: np.ndarray) -> torch.Tensor:
     """Initialize B_tilde = Vinv @ B_raw.
 
     Args:
-        local_P: Pre-transform size (ssm_size when conj_sym=True)
-        H:       Hidden dimension
-        Vinv:    (P, local_P) complex eigenvector inverse
+        P:    State size
+        H:    Hidden dimension
+        Vinv: (P, P) complex eigenvector inverse
     Returns:
         (P, H, 2) float tensor [real, imag]
     """
-    std = 1.0 / math.sqrt(max(1, local_P))
-    B_raw = np.random.normal(0, std, (local_P, H))
+    std = 1.0 / math.sqrt(max(1, P))
+    B_raw = np.random.normal(0, std, (P, H))
     VinvB = Vinv @ B_raw  # (P, H) complex
     return torch.stack(
         [torch.tensor(VinvB.real, dtype=torch.float32),
@@ -171,19 +171,19 @@ def _init_B(local_P: int, H: int, Vinv: np.ndarray) -> torch.Tensor:
     )  # (P, H, 2)
 
 
-def _init_C(H: int, local_P: int, V: np.ndarray) -> torch.Tensor:
+def _init_C(H: int, P: int, V: np.ndarray) -> torch.Tensor:
     """Initialize C_tilde = C_raw @ V.
 
     Args:
-        H:       Hidden dimension
-        local_P: Pre-transform size (ssm_size when conj_sym=True)
-        V:       (local_P, P) complex eigenvectors
+        H: Hidden dimension
+        P: State size
+        V: (P, P) complex eigenvectors
     Returns:
         (H, P) complex tensor
     """
-    std = 1.0 / math.sqrt(max(1, local_P))
-    C_re = np.random.normal(0, std, (H, local_P))
-    C_im = np.random.normal(0, std, (H, local_P))
+    std = 1.0 / math.sqrt(max(1, P))
+    C_re = np.random.normal(0, std, (H, P))
+    C_im = np.random.normal(0, std, (H, P))
     C = C_re + 1j * C_im
     CV = C @ V  # (H, P) complex
     return torch.complex(
@@ -247,8 +247,6 @@ def apply_ssm(
     C_tilde: torch.Tensor,
     D: torch.Tensor,
     input_sequence: torch.Tensor,
-    conj_sym: bool,
-    liquid: bool = False,
     bidir: bool = False,
 ) -> torch.Tensor:
     """Apply discretized SSM to a single (non-batched) input sequence.
@@ -256,11 +254,9 @@ def apply_ssm(
     Args:
         Lambda_bar:     (P,) or (L, P) complex
         B_bar:          (P, H) or (L, P, H) complex
-        C_tilde:        (H, P) or (L, H, 2*P) complex (2*P if bidir)
+        C_tilde:        (H, P) or (L, H, P) complex (2*P instead of P if bidir)
         D:              (H,) real direct feedthrough
         input_sequence: (L, H) real
-        conj_sym:       multiply output by 2 for conjugate-symmetric eigenvalues
-        liquid:         liquid SSM: A_i = Lambda_bar + Bu_i
         bidir:          concatenate forward and backward hidden states
     Returns:
         ys: (L, H) real
@@ -279,9 +275,6 @@ def apply_ssm(
     else:
         Lambda_elements = Lambda_bar
 
-    if liquid:
-        Lambda_elements = Lambda_elements + Bu_elements
-
     _, xs = associative_scan(_binary_operator, (Lambda_elements, Bu_elements))
 
     if bidir:
@@ -291,16 +284,10 @@ def apply_ssm(
     # Output: (L, H)
     if C_tilde.ndim == 3:
         # Time-varying C: (L, H, P) or (L, H, 2*P) if bidir
-        if conj_sym:
-            Cx = torch.vmap(lambda C, x: 2.0 * (C @ x).real)(C_tilde, xs)
-        else:
-            Cx = torch.vmap(lambda C, x: (C @ x).real)(C_tilde, xs)
+        Cx = torch.vmap(lambda C, x: (C @ x).real)(C_tilde, xs)
     else:
         # Static C: (H, P) or (H, 2*P) if bidir
-        if conj_sym:
-            Cx = torch.vmap(lambda x: 2.0 * (C_tilde @ x).real)(xs)
-        else:
-            Cx = torch.vmap(lambda x: (C_tilde @ x).real)(xs)
+        Cx = torch.vmap(lambda x: (C_tilde @ x).real)(xs)
 
     Du = torch.vmap(lambda u: D * u)(input_sequence)
     return Cx + Du
@@ -402,25 +389,19 @@ class GluEncoder(nn.Module):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class LowRankHead(nn.Module):
-    """Projection head. rank>0: factored Linear(in,r)->Linear(r,out). rank<=0: full Linear(in,out)."""
+    """Factored projection head: Linear(d_in, rank) -> Linear(rank, d_out)."""
 
     def __init__(self, d_in: int, d_out: int, rank: int, init_method: str = "zeros"):
         super().__init__()
-        if rank > 0:
-            self.down = nn.Linear(d_in, rank)
-            self.up = nn.Linear(rank, d_out)
-        else:
-            self.down = None
-            self.up = nn.Linear(d_in, d_out)
+        self.down = nn.Linear(d_in, rank)
+        self.up = nn.Linear(rank, d_out)
         if init_method == "zeros":
             nn.init.zeros_(self.up.weight)
         elif init_method == "random":
             nn.init.normal_(self.up.weight, std=0.01)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.down is not None:
-            return self.up(self.down(x))
-        return self.up(x)
+        return self.up(self.down(x))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -434,11 +415,7 @@ class TIDESSSM(nn.Module):
     - Per-timestep step_scale for irregular sampling
     - PyTorch autograd-compatible implementation
 
-    Asymmetric conjugate symmetry:
-    - Static params keep conj_sym at half-size P (HiPPO structure preserved)
-    - ID params are unconstrained at full_P (= ssm_size)
-    - When any component is input-dependent, the still-static parts are
-      expanded to full_P via conjugation; apply_ssm uses conj_sym=False
+    The state size P equals ssm_size (no conjugate-symmetry halving).
     """
 
     def __init__(
@@ -446,7 +423,6 @@ class TIDESSSM(nn.Module):
         ssm_size: int,
         blocks: int,
         H: int,
-        conj_sym: bool = True,
         clip_eigs: bool = False,
         discretization: Literal["zoh", "bilinear"] = "zoh",
         dt_min: float = 0.001,
@@ -455,13 +431,11 @@ class TIDESSSM(nn.Module):
         lambda_im_mode: Literal["lti", "input_dependent"] = "lti",
         bc_mode: Literal["lti", "input_dependent"] = "lti",
         learn_lambda: Literal["standard", "exp", "stable", "softplus"] = "standard",
-        liquid: bool = False,
         bidir: bool = False,
         lambda_encoder_depth: int = 1,
         bc_rank: int = 8,
-        conv_kernel_size: int = 0,
         proj_init_method: str = "zeros",
-        proj_norm: Optional[str] = None,
+        proj_norm: Optional[str] = "rmsnorm",
         step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
@@ -472,40 +446,28 @@ class TIDESSSM(nn.Module):
             if m not in ('lti', 'input_dependent'):
                 raise ValueError(
                     f"{name} must be 'lti' or 'input_dependent', got {m!r}")
+        if bc_mode == "input_dependent" and bc_rank < 1:
+            raise ValueError(f"bc_rank must be >= 1, got {bc_rank}")
         self.H = H
-        self.conj_sym = conj_sym
         self.clip_eigs = clip_eigs
         self.discretization = discretization
         self.lambda_re_mode = lambda_re_mode
         self.lambda_im_mode = lambda_im_mode
         self.bc_mode = bc_mode
-        self.bc_diag = bc_rank < 0
         self.learn_lambda = learn_lambda
-        self.liquid = liquid
         self.bidir = bidir
         self.step_mode = step_mode
 
         # ── HiPPO initialization ──────────────────────────────────────────────
         block_size = ssm_size // blocks
         Lambda_np, _, _, V_np = _make_DPLR_HiPPO(block_size)
-
-        if conj_sym:
-            block_size = block_size // 2
-            P = ssm_size // 2
-        else:
-            P = ssm_size
-
+        P = ssm_size
         self.P = P
-        self.full_P = 2 * P if conj_sym else P  # unconstrained state size (= ssm_size)
-        local_P = ssm_size  # pre-transform size (for B and C sampling)
-
-        Lambda_np = Lambda_np[:block_size]
-        V_np = V_np[:, :block_size]
-        Vc_np = V_np.conj().T  # (block_size, original_block_size)
+        Vc_np = V_np.conj().T
 
         # Block-diagonal construction
-        V_blocks = scipy.linalg.block_diag(*([V_np] * blocks))    # (ssm_size, P)
-        Vinv_blocks = scipy.linalg.block_diag(*([Vc_np] * blocks))  # (P, ssm_size)
+        V_blocks = scipy.linalg.block_diag(*([V_np] * blocks))      # (P, P)
+        Vinv_blocks = scipy.linalg.block_diag(*([Vc_np] * blocks))  # (P, P)
         Lambda_np = np.tile(Lambda_np, blocks)  # (P,)
 
         # ── Lambda parameters ─────────────────────────────────────────────────
@@ -523,14 +485,14 @@ class TIDESSSM(nn.Module):
         self.Lambda_im = nn.Parameter(torch.tensor(Lambda_np.imag, dtype=torch.float32))
 
         # ── B and C parameters ────────────────────────────────────────────────
-        B_init = _init_B(local_P, H, Vinv_blocks)   # (P, H, 2) float
+        B_init = _init_B(P, H, Vinv_blocks)   # (P, H, 2) float
         self.B = nn.Parameter(B_init)
 
         # C matrix: (H, P) for unidirectional, (H, 2*P) for bidirectional
-        C_init = _init_C(H, local_P, V_blocks)      # (H, P) complex
+        C_init = _init_C(H, P, V_blocks)      # (H, P) complex
         if bidir:
             # Initialize separate C for backward pass and concatenate
-            C_init_bwd = _init_C(H, local_P, V_blocks)
+            C_init_bwd = _init_C(H, P, V_blocks)
             C_init = torch.cat([C_init, C_init_bwd], dim=-1)  # (H, 2*P)
         self.C = nn.Parameter(torch.view_as_real(C_init.contiguous()))  # (H, P, 2) or (H, 2*P, 2)
 
@@ -552,137 +514,60 @@ class TIDESSSM(nn.Module):
         else:
             self.step_proj = None
 
-        # Expand HiPPO eigenvalues to full_P for bias initialization
-        if conj_sym:
-            Lambda_init = np.concatenate([Lambda_np, Lambda_np.conj()])  # (full_P,)
-        else:
-            Lambda_init = Lambda_np  # (full_P = P,)
-
         # ── Input-dependent Lambda REAL projector ─────────────────────────────
+        # Bias = the static parameter, so the projector starts at HiPPO.
         if lambda_re_mode == "input_dependent":
             self.lambda_re_proj = GluEncoder(
-                H, self.full_P, depth=lambda_encoder_depth, init_method=proj_init_method
+                H, P, depth=lambda_encoder_depth, init_method=proj_init_method
             )
-            if learn_lambda == "exp":
-                re_bias = np.log(-Lambda_init.real)
-            elif learn_lambda == "stable":
-                re_bias = np.sqrt(np.maximum(0.0, -1.0 / Lambda_init.real - 0.5))
-            elif learn_lambda == "softplus":
-                re_bias = np.log(np.exp(-Lambda_init.real) - 1.0)
-            else:
-                re_bias = Lambda_init.real
             with torch.no_grad():
                 self.lambda_re_proj.linear.bias.copy_(
-                    torch.tensor(re_bias, dtype=torch.float32))
+                    torch.tensor(Lambda_re_param, dtype=torch.float32))
         else:
             self.lambda_re_proj = None
 
         # ── Input-dependent Lambda IMAG projector ─────────────────────────────
         if lambda_im_mode == "input_dependent":
             self.lambda_im_proj = GluEncoder(
-                H, self.full_P, depth=lambda_encoder_depth, init_method=proj_init_method
+                H, P, depth=lambda_encoder_depth, init_method=proj_init_method
             )
             with torch.no_grad():
                 self.lambda_im_proj.linear.bias.copy_(
-                    torch.tensor(Lambda_init.imag, dtype=torch.float32))
+                    torch.tensor(Lambda_np.imag, dtype=torch.float32))
         else:
             self.lambda_im_proj = None
 
-        # ── Input-dependent BC projectors ─────────────────────────────────────
-        # bc_rank > 0: low-rank factored projection
-        # bc_rank = 0: full-rank projection
-        # bc_rank < 0: diagonal modulation (scalar per state dim × static B/C)
+        # ── Input-dependent BC projectors (low-rank heads) ────────────────────
+        # Bias = flattened HiPPO B/C values, so the SSM starts at HiPPO.
+        C_dim = 2 * P if bidir else P
         if bc_mode == "input_dependent":
-            r = max(bc_rank, 0)  # rank for LowRankHead (0 = full)
-            C_dim_id = 2 * self.full_P if bidir else self.full_P
-
-            if self.bc_diag:
-                b_proj_dim = self.full_P * 2
-                c_proj_dim = C_dim_id * 2
-            else:
-                b_proj_dim = self.full_P * H * 2
-                c_proj_dim = H * C_dim_id * 2
-            self.b_proj = LowRankHead(H, b_proj_dim, r, init_method=proj_init_method)
-            self.c_proj = LowRankHead(H, c_proj_dim, r, init_method=proj_init_method)
-
-            # Initialize bias so SSM starts at HiPPO.
+            self.b_proj = LowRankHead(H, P * H * 2, bc_rank, init_method=proj_init_method)
+            self.c_proj = LowRankHead(H, H * C_dim * 2, bc_rank, init_method=proj_init_method)
             with torch.no_grad():
-                if self.bc_diag:
-                    # Diagonal: bias = 1+0j so diag(1)*B_static = B_static
-                    b_bias = torch.tensor([1.0, 0.0]).repeat(self.full_P)
-                    c_bias = torch.tensor([1.0, 0.0]).repeat(C_dim_id)
-                else:
-                    # Matrix: bias = flattened HiPPO B/C values
-                    B_complex = torch.view_as_complex(B_init.contiguous())  # (P, H)
-                    C_complex = torch.view_as_complex(self.C.data.contiguous())  # (H, C_dim)
-                    if conj_sym:
-                        B_full = torch.cat([B_complex, B_complex.conj()], dim=0)
-                        if bidir:
-                            C_fwd = C_complex[:, :self.P]
-                            C_bwd = C_complex[:, self.P:]
-                            C_full = torch.cat([
-                                torch.cat([C_fwd, C_fwd.conj()], dim=1),
-                                torch.cat([C_bwd, C_bwd.conj()], dim=1),
-                            ], dim=1)
-                        else:
-                            C_full = torch.cat([C_complex, C_complex.conj()], dim=1)
-                    else:
-                        B_full = B_complex
-                        C_full = C_complex
-                    b_bias = torch.view_as_real(B_full.contiguous()).reshape(-1)
-                    c_bias = torch.view_as_real(C_full.contiguous()).reshape(-1)
-                self.b_proj.up.bias.copy_(b_bias)
-                self.c_proj.up.bias.copy_(c_bias)
+                self.b_proj.up.bias.copy_(B_init.reshape(-1))
+                self.c_proj.up.bias.copy_(self.C.data.reshape(-1))
         else:
             self.b_proj = None
             self.c_proj = None
 
-        # ── Causal depthwise conv1d for local temporal context ────────────────
-        if conv_kernel_size > 0:
-            self.conv = nn.Conv1d(
-                H, H, conv_kernel_size,
-                groups=H,
-                padding=conv_kernel_size - 1,
-                bias=True,
-            )
-            self.conv_kernel_size = conv_kernel_size
-        else:
-            self.conv = None
-            self.conv_kernel_size = 0
-
         # ── Optional RMSNorm on projected parameters ─────────────────────────
-        C_dim_id_norm = 2 * self.full_P if bidir else self.full_P
         self.lambda_re_norm = (
-            RMSNorm(self.full_P) if proj_norm == "rmsnorm" and lambda_re_mode == "input_dependent"
+            RMSNorm(P) if proj_norm == "rmsnorm" and lambda_re_mode == "input_dependent"
             else None)
         self.lambda_im_norm = (
-            RMSNorm(self.full_P) if proj_norm == "rmsnorm" and lambda_im_mode == "input_dependent"
+            RMSNorm(P) if proj_norm == "rmsnorm" and lambda_im_mode == "input_dependent"
             else None)
         self.b_norm = (
-            ComplexRMSNorm(self.full_P) if proj_norm == "rmsnorm" and bc_mode == "input_dependent"
+            ComplexRMSNorm(P) if proj_norm == "rmsnorm" and bc_mode == "input_dependent"
             else None)
         self.c_norm = (
-            ComplexRMSNorm(C_dim_id_norm) if proj_norm == "rmsnorm" and bc_mode == "input_dependent"
+            ComplexRMSNorm(C_dim) if proj_norm == "rmsnorm" and bc_mode == "input_dependent"
             else None)
 
     # ── Lambda helpers ────────────────────────────────────────────────────────
 
-    def _apply_lambda_transform(self, Lambda_re_raw: torch.Tensor, Lambda_im: torch.Tensor) -> torch.Tensor:
-        """Apply learn_lambda reparameterization and optional clipping."""
-        if self.learn_lambda == "exp":
-            Lambda_re = -torch.exp(Lambda_re_raw)
-        elif self.learn_lambda == "stable":
-            Lambda_re = -1.0 / (Lambda_re_raw ** 2 + 0.5)
-        elif self.learn_lambda == "softplus":
-            Lambda_re = -F.softplus(Lambda_re_raw)
-        else:
-            Lambda_re = Lambda_re_raw
-        if self.clip_eigs:
-            Lambda_re = torch.clamp(Lambda_re, max=-1e-4)
-        return torch.complex(Lambda_re, Lambda_im)
-
     def _apply_re_transform(self, raw_re: torch.Tensor) -> torch.Tensor:
-        """Apply learn_lambda transform and clipping to raw real-part values."""
+        """Apply the learn_lambda reparameterization and optional clipping to Re(Lambda)."""
         if self.learn_lambda == "exp":
             re = -torch.exp(raw_re)
         elif self.learn_lambda == "stable":
@@ -701,20 +586,13 @@ class TIDESSSM(nn.Module):
         Args:
             x: (L, H) input sequence
         Returns:
-            Lambda: (P,) complex if both lti, (L, full_P) complex otherwise
+            Lambda: (P,) complex if both lti, (L, P) complex otherwise
         """
-        # Short-circuit: both LTI
-        if self.lambda_re_mode == "lti" and self.lambda_im_mode == "lti":
-            return self._apply_lambda_transform(self.Lambda_re, self.Lambda_im)
-
-        # At least one part is non-LTI → work at full_P
         # --- Real part ---
         if self.lambda_re_mode == "lti":
             Lambda_re = self._apply_re_transform(self.Lambda_re)  # (P,)
-            if self.conj_sym:
-                Lambda_re = torch.cat([Lambda_re, Lambda_re])  # (full_P,)
         else:  # input_dependent
-            f_re = torch.vmap(self.lambda_re_proj)(x)  # (L, full_P)
+            f_re = torch.vmap(self.lambda_re_proj)(x)  # (L, P)
             if self.lambda_re_norm is not None:
                 f_re = torch.vmap(self.lambda_re_norm)(f_re)
             Lambda_re = self._apply_re_transform(f_re)
@@ -722,10 +600,8 @@ class TIDESSSM(nn.Module):
         # --- Imaginary part ---
         if self.lambda_im_mode == "lti":
             Lambda_im = self.Lambda_im  # (P,)
-            if self.conj_sym:
-                Lambda_im = torch.cat([Lambda_im, -Lambda_im])  # (full_P,)
         else:  # input_dependent
-            Lambda_im = torch.vmap(self.lambda_im_proj)(x)  # (L, full_P)
+            Lambda_im = torch.vmap(self.lambda_im_proj)(x)  # (L, P)
             if self.lambda_im_norm is not None:
                 Lambda_im = torch.vmap(self.lambda_im_norm)(Lambda_im)
 
@@ -736,66 +612,33 @@ class TIDESSSM(nn.Module):
     def _get_BC(self, x: torch.Tensor):
         """Compute B and C (static or input-dependent).
 
-        Static params live at P (half-size when conj_sym). ID params live at
-        full_P (unconstrained).
-
         Args:
             x: (L, H) input sequence
         Returns:
-            B_tilde: (P, H) complex if lti, (L, full_P, H) otherwise
-            C_tilde: (H, C_dim) complex if lti, (L, H, C_dim_id) otherwise
+            B_tilde: (P, H) complex if lti, (L, P, H) otherwise
+            C_tilde: (H, C_dim) complex if lti, (L, H, C_dim) otherwise
+                     (C_dim = 2*P if bidir else P)
         """
-        B_static = torch.view_as_complex(self.B.contiguous())  # (P, H) complex
-        C_static = torch.view_as_complex(self.C.contiguous())  # (H, C_dim_static) complex
-
         if self.bc_mode == "lti":
-            return B_static, C_static
+            return (torch.view_as_complex(self.B.contiguous()),   # (P, H)
+                    torch.view_as_complex(self.C.contiguous()))   # (H, C_dim)
 
         L = x.shape[0]
-        full_P = self.full_P
-        C_dim_id = 2 * full_P if self.bidir else full_P
+        C_dim = 2 * self.P if self.bidir else self.P
 
-        # Separate projections for B and C
+        # Separate low-rank projections for B and C
         B_flat = torch.vmap(self.b_proj)(x)
         C_flat = torch.vmap(self.c_proj)(x)
-
-        if self.bc_diag:
-            # Diagonal modulation: scalar per state dim × static B/C
-            b_s = torch.view_as_complex(B_flat.reshape(L, full_P, 2).contiguous())   # (L, full_P)
-            c_s = torch.view_as_complex(C_flat.reshape(L, C_dim_id, 2).contiguous())  # (L, C_dim_id)
-            if self.b_norm is not None:
-                b_s = torch.vmap(self.b_norm)(b_s)
-            if self.c_norm is not None:
-                c_s = torch.vmap(self.c_norm)(c_s)
-            # Expand static B/C to full_P
-            if self.conj_sym:
-                B_sf = torch.cat([B_static, B_static.conj()], dim=0)
-                if self.bidir:
-                    C_fwd = C_static[:, :self.P]
-                    C_bwd = C_static[:, self.P:]
-                    C_sf = torch.cat([
-                        torch.cat([C_fwd, C_fwd.conj()], dim=1),
-                        torch.cat([C_bwd, C_bwd.conj()], dim=1),
-                    ], dim=1)
-                else:
-                    C_sf = torch.cat([C_static, C_static.conj()], dim=1)
-            else:
-                B_sf = B_static
-                C_sf = C_static
-            B_dyn = b_s.unsqueeze(-1) * B_sf.unsqueeze(0)   # (L, full_P, H)
-            C_dyn = c_s.unsqueeze(-2) * C_sf.unsqueeze(0)   # (L, H, C_dim_id)
-        else:
-            # Full/low-rank matrix projection
-            B_dyn = torch.view_as_complex(
-                B_flat.reshape(L, full_P, self.H, 2).contiguous()
-            )  # (L, full_P, H)
-            C_dyn = torch.view_as_complex(
-                C_flat.reshape(L, self.H, C_dim_id, 2).contiguous()
-            )  # (L, H, C_dim_id)
-            if self.b_norm is not None:
-                B_dyn = torch.vmap(lambda b: torch.vmap(self.b_norm)(b.T).T)(B_dyn)
-            if self.c_norm is not None:
-                C_dyn = torch.vmap(lambda c: torch.vmap(self.c_norm)(c))(C_dyn)
+        B_dyn = torch.view_as_complex(
+            B_flat.reshape(L, self.P, self.H, 2).contiguous()
+        )  # (L, P, H)
+        C_dyn = torch.view_as_complex(
+            C_flat.reshape(L, self.H, C_dim, 2).contiguous()
+        )  # (L, H, C_dim)
+        if self.b_norm is not None:
+            B_dyn = torch.vmap(lambda b: torch.vmap(self.b_norm)(b.T).T)(B_dyn)
+        if self.c_norm is not None:
+            C_dyn = torch.vmap(lambda c: torch.vmap(self.c_norm)(c))(C_dyn)
 
         return B_dyn, C_dyn
 
@@ -812,7 +655,7 @@ class TIDESSSM(nn.Module):
             B_bar:      (P, H) or (L, P, H) complex
             C_tilde:    (H, P) or (L, H, P) complex
         """
-        Lambda = self._get_lambda(x)       # (P,) or (L, full_P)
+        Lambda = self._get_lambda(x)       # (P,) or (L, P)
         B_tilde, C_tilde = self._get_BC(x)  # static or (L, ...)
 
         # Compute step: (P,) or (L, P)
@@ -829,32 +672,6 @@ class TIDESSSM(nn.Module):
                 step = float(step_scale) * step_base   # (P,)
             else:
                 step = step_scale[:, None] * step_base[None, :]  # (L, P)
-
-        # When any parameter is input-dependent and conj_sym is on, all dimensions
-        # must be expanded to full_P (asymmetric conj_sym).
-        any_id = ((self.lambda_re_mode != "lti") or (self.lambda_im_mode != "lti")
-                  or (self.bc_mode != "lti"))
-        if self.conj_sym and any_id:
-            # Expand step to full_P
-            if step.ndim == 1:
-                step = torch.cat([step, step])  # (full_P,)
-            else:
-                step = torch.cat([step, step], dim=-1)  # (L, full_P)
-
-            # Expand still-static parameters to full_P via conjugation
-            if self.lambda_re_mode == "lti" and self.lambda_im_mode == "lti":
-                Lambda = torch.cat([Lambda, Lambda.conj()])
-            if self.bc_mode == "lti":
-                B_tilde = torch.cat([B_tilde, B_tilde.conj()], dim=0)
-                if self.bidir:
-                    C_fwd = C_tilde[:, :self.P]
-                    C_bwd = C_tilde[:, self.P:]
-                    C_tilde = torch.cat([
-                        torch.cat([C_fwd, C_fwd.conj()], dim=1),
-                        torch.cat([C_bwd, C_bwd.conj()], dim=1),
-                    ], dim=1)
-                else:
-                    C_tilde = torch.cat([C_tilde, C_tilde.conj()], dim=1)
 
         # Detect time-varying dimensions from tensor rank
         disc_fn = discretize_zoh if self.discretization == "zoh" else discretize_bilinear
@@ -884,24 +701,8 @@ class TIDESSSM(nn.Module):
         Returns:
             y: (L, H)
         """
-        # Optional causal conv1d for local temporal context
-        if self.conv is not None:
-            # x: (L, H) → (H, L) for Conv1d → causal trim → SiLU → (L, H)
-            x_conv = F.silu(self.conv(x.T)[:, :x.shape[0]].T)
-        else:
-            x_conv = x
-
-        Lambda_bar, B_bar, C_tilde = self._prepare(x_conv, step_scale)
-
-        # conj_sym only applies when all params are static (LTI); otherwise
-        # we've already expanded to full_P and the conjugate structure is broken.
-        any_id = ((self.lambda_re_mode != "lti") or (self.lambda_im_mode != "lti")
-                  or (self.bc_mode != "lti"))
-        effective_conj_sym = self.conj_sym and not any_id
-
-        ys = apply_ssm(Lambda_bar, B_bar, C_tilde, self.D, x_conv, effective_conj_sym,
-                       self.liquid, self.bidir)
-        return ys
+        Lambda_bar, B_bar, C_tilde = self._prepare(x, step_scale)
+        return apply_ssm(Lambda_bar, B_bar, C_tilde, self.D, x, self.bidir)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -922,7 +723,6 @@ class TIDESBlock(nn.Module):
         ssm_size: int,
         blocks: int,
         H: int,
-        conj_sym: bool = True,
         clip_eigs: bool = False,
         discretization: Literal["zoh", "bilinear"] = "zoh",
         dt_min: float = 0.001,
@@ -931,15 +731,13 @@ class TIDESBlock(nn.Module):
         lambda_im_mode: Literal["lti", "input_dependent"] = "lti",
         bc_mode: Literal["lti", "input_dependent"] = "lti",
         learn_lambda: Literal["standard", "exp", "stable", "softplus"] = "standard",
-        liquid: bool = False,
         bidir: bool = False,
         drop_rate: float = 0.05,
         lambda_encoder_depth: int = 1,
         bc_rank: int = 8,
         ff_mult: float = 1.0,
-        conv_kernel_size: int = 0,
         proj_init_method: str = "zeros",
-        proj_norm: Optional[str] = None,
+        proj_norm: Optional[str] = "rmsnorm",
         step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
@@ -949,7 +747,6 @@ class TIDESBlock(nn.Module):
             ssm_size=ssm_size,
             blocks=blocks,
             H=H,
-            conj_sym=conj_sym,
             clip_eigs=clip_eigs,
             discretization=discretization,
             dt_min=dt_min,
@@ -958,11 +755,9 @@ class TIDESBlock(nn.Module):
             lambda_im_mode=lambda_im_mode,
             bc_mode=bc_mode,
             learn_lambda=learn_lambda,
-            liquid=liquid,
             bidir=bidir,
             lambda_encoder_depth=lambda_encoder_depth,
             bc_rank=bc_rank,
-            conv_kernel_size=conv_kernel_size,
             proj_init_method=proj_init_method,
             proj_norm=proj_norm,
             step_mode=step_mode,
@@ -1009,28 +804,30 @@ class TIDES(nn.Module):
         → [TIDESBlock × num_blocks]
         → (B, L, d_hidden) features
 
-    The output head (e.g., linear projection to d_output for forecasting)
-    is NOT included here. It will be added in Stage 2 as TIDESForecastingModel.
+    The output head is not included here: TIDESClassifier and
+    TIDESForecastingModel add one.
 
     Args:
         d_input:              Input feature dimension
         d_hidden:             Hidden dimension H
-        ssm_size:             Total SSM state size
+        ssm_size:             Total SSM state size P
         ssm_blocks:           Diagonal blocks for HiPPO initialization
         num_blocks:           Number of TIDES blocks
-        conj_sym:             Use conjugate symmetry (halves effective state size P)
         clip_eigs:            Clip eigenvalues to be strictly negative
         discretization:       'zoh' or 'bilinear'
         dt_min / dt_max:      Log-step initialization range
         lambda_re_mode:       'lti' or 'input_dependent' (decay)
         lambda_im_mode:       'lti' or 'input_dependent' (oscillation)
         bc_mode:              'lti' or 'input_dependent'
-        learn_lambda:         'standard', 'exp', or 'stable'
-        liquid:               Liquid SSM dynamics
+        learn_lambda:         'standard', 'exp', 'stable' or 'softplus'
         bidir:                Weight-tied bidirectional scan
         drop_rate:            Dropout rate inside blocks
         encoder_depth:        GLU residual layers in the input encoder
         lambda_encoder_depth: GLU residual layers in the Lambda projector
+        bc_rank:              Rank of the low-rank B/C projector heads (>= 1)
+        ff_mult:              GLU expansion factor in each block
+        proj_init_method:     'zeros' or 'random' init of the projector weights
+        proj_norm:            'rmsnorm' on the projector outputs, or None for none
         step_mode:            'lti' (TIDES: step = Δ · exp(log_step)) or
                               'input_dependent' (Mamba-style surrogate:
                               step = softplus(W [x, Δ] + b))
@@ -1043,7 +840,6 @@ class TIDES(nn.Module):
         ssm_size: int,
         ssm_blocks: int,
         num_blocks: int,
-        conj_sym: bool = True,
         clip_eigs: bool = False,
         discretization: Literal["zoh", "bilinear"] = "zoh",
         dt_min: float = 0.001,
@@ -1052,16 +848,14 @@ class TIDES(nn.Module):
         lambda_im_mode: Literal["lti", "input_dependent"] = "lti",
         bc_mode: Literal["lti", "input_dependent"] = "lti",
         learn_lambda: Literal["standard", "exp", "stable", "softplus"] = "standard",
-        liquid: bool = False,
         bidir: bool = False,
         drop_rate: float = 0.05,
         encoder_depth: int = 1,
         lambda_encoder_depth: int = 1,
         bc_rank: int = 8,
         ff_mult: float = 1.0,
-        conv_kernel_size: int = 0,
         proj_init_method: str = "zeros",
-        proj_norm: Optional[str] = None,
+        proj_norm: Optional[str] = "rmsnorm",
         step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
@@ -1072,7 +866,6 @@ class TIDES(nn.Module):
                 ssm_size=ssm_size,
                 blocks=ssm_blocks,
                 H=d_hidden,
-                conj_sym=conj_sym,
                 clip_eigs=clip_eigs,
                 discretization=discretization,
                 dt_min=dt_min,
@@ -1081,13 +874,11 @@ class TIDES(nn.Module):
                 lambda_im_mode=lambda_im_mode,
                 bc_mode=bc_mode,
                 learn_lambda=learn_lambda,
-                liquid=liquid,
                 bidir=bidir,
                 drop_rate=drop_rate,
                 lambda_encoder_depth=lambda_encoder_depth,
                 bc_rank=bc_rank,
                 ff_mult=ff_mult,
-                conv_kernel_size=conv_kernel_size,
                 proj_init_method=proj_init_method,
                 proj_norm=proj_norm,
                 step_mode=step_mode,
@@ -1133,7 +924,6 @@ class TIDESClassifier(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-series
         ssm_size: int = 64,
         ssm_blocks: int = 2,
         num_blocks: int = 2,
-        conj_sym: bool = False,
         clip_eigs: bool = False,
         discretization: Literal["zoh", "bilinear"] = "zoh",
         dt_min: float = 0.001,
@@ -1142,14 +932,12 @@ class TIDESClassifier(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-series
         lambda_im_mode: Literal["lti", "input_dependent"] = "lti",
         bc_mode: Literal["lti", "input_dependent"] = "input_dependent",
         learn_lambda: Literal["standard", "exp", "stable", "softplus"] = "standard",
-        liquid: bool = False,
         bidir: bool = False,
         drop_rate: float = 0.0,
         encoder_depth: int = 0,
         lambda_encoder_depth: int = 0,
         bc_rank: int = 8,
         ff_mult: float = 1.0,
-        conv_kernel_size: int = 0,
         proj_init_method: str = "zeros",
         proj_norm: Optional[str] = "rmsnorm",
         step_mode: Literal["lti", "input_dependent"] = "lti",
@@ -1158,13 +946,13 @@ class TIDESClassifier(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-series
         self.backbone = TIDES(
             d_input=d_input, d_hidden=d_hidden, ssm_size=ssm_size,
             ssm_blocks=ssm_blocks, num_blocks=num_blocks,
-            conj_sym=conj_sym, clip_eigs=clip_eigs,
+            clip_eigs=clip_eigs,
             discretization=discretization, dt_min=dt_min, dt_max=dt_max,
             lambda_re_mode=lambda_re_mode, lambda_im_mode=lambda_im_mode,
-            bc_mode=bc_mode, learn_lambda=learn_lambda, liquid=liquid, bidir=bidir,
+            bc_mode=bc_mode, learn_lambda=learn_lambda, bidir=bidir,
             drop_rate=drop_rate, encoder_depth=encoder_depth,
             lambda_encoder_depth=lambda_encoder_depth, bc_rank=bc_rank,
-            ff_mult=ff_mult, conv_kernel_size=conv_kernel_size,
+            ff_mult=ff_mult,
             proj_init_method=proj_init_method, proj_norm=proj_norm,
             step_mode=step_mode,
         )
