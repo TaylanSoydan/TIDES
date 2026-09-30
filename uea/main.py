@@ -9,7 +9,6 @@ last epoch, mean +- std over seeds.
 """
 import argparse
 import os
-import random
 import sys
 import time
 import pprint
@@ -27,7 +26,7 @@ sys.path.insert(0, _HERE)
 sys.path.insert(0, os.path.join(_HERE, ".."))
 
 from utils import get_dataset_preprocess  # noqa: E402
-from tides import TIDESClassifier, step_scale_from_indices  # noqa: E402
+from tides import TIDESClassifier  # noqa: E402
 
 
 
@@ -46,35 +45,32 @@ def parse_args():
         parents=[prelim]
     )
     # Data and seeds
-    parser.add_argument("--dataset", type=str, default="TSC_SelfRegulationSCP1", help="Dataset to use")
+    parser.add_argument("--dataset", type=str, default="TSC_SelfRegulationSCP1",
+                        help="UEA dataset as TSC_<name>, e.g. TSC_EigenWorms (any name aeon can load)")
     parser.add_argument("--data_dir", type=str, default=os.path.join(_HERE, "..", "data", "UEA_datasets"),
                         help="Directory aeon reads / downloads the UEA datasets into")
-    parser.add_argument("--n_seeds", type=int, default=4, help="Number of random seeds (42, 43, ...)")
+    parser.add_argument("--n_seeds", type=int, default=5, help="Number of random seeds (42, 43, ...)")
 
     # Training
     parser.add_argument("--epoch", type=int, default=300, help="Max training epochs")
-    parser.add_argument("--early_stop_patience", type=int, default=15, help="Early stopping patience in epochs (0 = disabled)")
+    parser.add_argument("--early_stop_patience", type=int, default=30, help="Early stopping patience in epochs (0 = disabled)")
     parser.add_argument("--batch_size", type=int, default=20, help="Training batch size")
-    parser.add_argument("--lr", type=float, default=0.00040788, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay for optimizer")
     parser.add_argument("--optimizer", type=str, default="Adam", help="Optimizer to use")
 
-    # Random drop
-    parser.add_argument("--use_random_drop", action="store_true", help="Enable random dropping of time points")
-    parser.add_argument("--random_percentage", type=float, default=0.7, help="Fraction of points to keep when randomly dropping")
-
-    # TIDES hyperparameters
+    # TIDES hyperparameters (defaults = TIDESClassifier defaults)
     parser.add_argument("--tides_hidden", type=int, default=64, help="TIDES hidden dimension")
     parser.add_argument("--tides_ssm_size", type=int, default=64, help="TIDES total SSM state size")
     parser.add_argument("--tides_ssm_blocks", type=int, default=2, help="TIDES HiPPO diagonal blocks")
     parser.add_argument("--tides_num_blocks", type=int, default=2, help="TIDES number of SSM blocks")
-    parser.add_argument("--tides_lambda_re_mode", choices=["lti", "input_dependent"], default="lti", help="TIDES Lambda real mode")
+    parser.add_argument("--tides_lambda_re_mode", choices=["lti", "input_dependent"], default="input_dependent", help="TIDES Lambda real mode")
     parser.add_argument("--tides_lambda_im_mode", choices=["lti", "input_dependent"], default="lti", help="TIDES Lambda imaginary mode")
-    parser.add_argument("--tides_bc_mode", choices=["lti", "input_dependent"], default="lti", help="TIDES B/C mode")
+    parser.add_argument("--tides_bc_mode", choices=["lti", "input_dependent"], default="input_dependent", help="TIDES B/C mode")
     parser.add_argument("--tides_bc_rank", type=int, default=8, help="TIDES rank of the low-rank B/C projectors (>= 1)")
-    parser.add_argument("--tides_drop_rate", type=float, default=0.05, help="TIDES dropout rate inside blocks")
+    parser.add_argument("--tides_drop_rate", type=float, default=0.0, help="TIDES dropout rate inside blocks")
     parser.add_argument("--tides_learn_lambda", choices=["standard", "exp", "stable", "softplus"], default="standard", help="TIDES Lambda reparameterization")
-    parser.add_argument("--tides_encoder_depth", type=int, default=1, help="TIDES GLU layers in input encoder")
+    parser.add_argument("--tides_encoder_depth", type=int, default=0, help="TIDES GLU layers in input encoder")
     parser.add_argument("--tides_ff_mult", type=float, default=1.0, help="TIDES feed-forward expansion in GLU")
     parser.add_argument("--tides_dt_min", type=float, default=0.001, help="TIDES minimum log-step init value")
     parser.add_argument("--tides_dt_max", type=float, default=0.1, help="TIDES maximum log-step init value")
@@ -82,7 +78,7 @@ def parse_args():
     parser.add_argument("--tides_clip_eigs", action="store_true", help="TIDES clip eigenvalues to left half-plane")
     parser.add_argument("--tides_bidir", action="store_true", help="TIDES bidirectional SSM")
     parser.add_argument("--tides_lambda_encoder_depth", type=int, default=0, help="TIDES GLU layers in lambda encoder")
-    parser.add_argument("--tides_proj_norm", type=str, default="rmsnorm", help="TIDES projection norm (rmsnorm or none)")
+    parser.add_argument("--tides_proj_norm", choices=["rmsnorm", "none"], default="rmsnorm", help="TIDES RMSNorm on the projector outputs, or none")
 
     # Data splits
     parser.add_argument("--test_size", type=float, default=0.3, help="Fraction of data for test set")
@@ -98,7 +94,7 @@ def parse_args():
     return parser.parse_args(remaining_argv)
 
 
-def calculate_accuracy(model, loader, indices_keep, step_scale, device):
+def calculate_accuracy(model, loader, device):
     """Accuracy and mean cross-entropy loss of the model on a data loader."""
     model.eval()
     correct = total = 0
@@ -107,9 +103,9 @@ def calculate_accuracy(model, loader, indices_keep, step_scale, device):
 
     with torch.no_grad():
         for batch in loader:
-            inputs = batch['input'].to(device)[:, indices_keep, :]
+            inputs = batch['input'].to(device)
             labels = batch['label'].to(device)
-            outputs = model(inputs, step_scale=step_scale)
+            outputs = model(inputs)
             total_loss += criterion(outputs, labels).item()
             preds = outputs.argmax(dim=1)
             total += labels.size(0)
@@ -149,8 +145,7 @@ def train_one_seed(config, seed, device):
     """Main training and evaluation loop for a single random seed."""
     torch.manual_seed(seed)
     np.random.seed(seed)
-    random.seed(seed)
-    
+
     start_time = time.time()
     print("\n" + "="*50)
     print(f"Starting Training for Seed: {seed}")
@@ -163,18 +158,7 @@ def train_one_seed(config, seed, device):
 
     print(f"\nDataset Info: Classes={num_classes}, Samples={num_samples}, Features={num_features}, SeqLen={seq_len_orig}")
 
-    indices = list(range(seq_len_orig))
-    if config.use_random_drop:
-        keep_indices = sorted(random.sample(indices, int(config.random_percentage * seq_len_orig)))
-        if 0 not in keep_indices:
-            keep_indices.insert(0, 0)
-    else:
-        keep_indices = indices
-
-    # Per-timestep step sizes from the kept indices: step_scale[i] = gap between
-    # kept index i and i-1 on the original grid.  With no drop every gap is 1.
-    step_scale = step_scale_from_indices(keep_indices, device=device)
-
+    # UEA series are regularly sampled: the model's default step_scale of 1.
     model = create_model(config, num_features, num_classes, device)
     criterion = nn.CrossEntropyLoss()
     optimizer = getattr(optim, config.optimizer)(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
@@ -183,7 +167,7 @@ def train_one_seed(config, seed, device):
     best_val_acc = -1.0
     best_test_at_val = -1.0
     no_improve = 0
-    patience = getattr(config, 'early_stop_patience', 15)
+    patience = config.early_stop_patience
     for epoch in range(config.epoch):
         model.train()
         epoch_loss = 0.0
@@ -191,8 +175,7 @@ def train_one_seed(config, seed, device):
         epoch_total = 0
         for batch in train_loader:
             inputs, labels = batch['input'].to(device), batch['label'].to(device)
-            inputs = inputs[:, keep_indices, :]
-            outputs = model(inputs, step_scale=step_scale)
+            outputs = model(inputs)
             loss = criterion(outputs, labels)
 
             optimizer.zero_grad()
@@ -204,8 +187,8 @@ def train_one_seed(config, seed, device):
 
         avg_loss = epoch_loss / len(train_loader)
         train_acc = epoch_correct / epoch_total
-        val_acc, val_loss = calculate_accuracy(model, val_loader, keep_indices, step_scale, device)
-        test_acc, test_loss = calculate_accuracy(model, test_loader, keep_indices, step_scale, device)
+        val_acc, val_loss = calculate_accuracy(model, val_loader, device)
+        test_acc, test_loss = calculate_accuracy(model, test_loader, device)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -224,7 +207,7 @@ def train_one_seed(config, seed, device):
             break
 
     print(f"\nTotal training time: {time.time() - start_time:.2f}s")
-    final_acc, _ = calculate_accuracy(model, test_loader, keep_indices, step_scale, device)
+    final_acc, _ = calculate_accuracy(model, test_loader, device)
     return best_val_acc, best_test_at_val, final_acc
 
 

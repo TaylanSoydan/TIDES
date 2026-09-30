@@ -18,7 +18,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 
 class TIDESBatch(NamedTuple):
-    """Batch format consumed by TIDESForecastingModel and train_tides.py."""
+    """Batch format consumed by TIDESForecastingModel (see physiome_ode/tides_train_fn.py)."""
 
     values:      Tensor  # (B, L, D)  merged timeline values; zeros at target positions
     step_scale:  Tensor  # (B, L)     delta_t between consecutive merged timestamps
