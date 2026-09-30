@@ -59,9 +59,7 @@ python baselines/check_mamba_ports.py    # needs a GPU; compares the ports with 
 
 Mamba-3 needs none of this.  Its official kernel only runs on Hopper GPUs, so
 the repository uses a PyTorch port of the SISO block (`baselines/mamba_blocks.py`),
-checked against the official module and computed with a chunked scan.  It
-follows the 2.3.2.post1 release; `docs/reproducibility.md` notes where the
-Fading Flash runs differ.
+checked against the official module and computed with a chunked scan.
 
 ## Using the model
 
@@ -161,7 +159,7 @@ generated dataset card describes the fields.
 
 ## Compute
 
-The UEA and Physiome-ODE experiments were run on a single NVIDIA L40S (48 GB) GPU. UEA hyperparameter searches take 12–48 GPU-hours per dataset; Physiome-ODE final-fold runs take 0.2–2 GPU-hours per dataset. The drop-rate experiment was run on an RTX 4090 (24 GB), and Fading Flash trains on CPU.
+All PyTorch experiments were run on a single NVIDIA L40S (48 GB) GPU. UEA hyperparameter searches take 12–48 GPU-hours per dataset; Physiome-ODE final-fold runs take 0.2–2 GPU-hours per dataset.
 
 ## Datasets and licenses
 
