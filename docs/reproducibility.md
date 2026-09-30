@@ -44,7 +44,9 @@ validation MSE (patience 30), AdamW with the three-group learning rates below
 after `warmup` epochs.  Reported: test MSE, mean ± std over folds.  The
 configurations live in `physiome_ode/configs/winners.csv`; every winner uses
 input-dependent Re(Λ) and B, C, LTI Im(Λ), `conj_sym` off, `dt_min` 0.001 and
-RMSNorm on the projections.
+RMSNorm on the projections.  HYN01 and JEL02 have `ff_mult` 0, which leaves each
+block's GLU with no hidden units: the search found them at 0.5, but the runs
+behind the paper's numbers read it as an integer.
 
 | Code | Dataset | lr | lr factor | wd | h | ssm | ssm blocks | L | enc | λ enc | learn λ | disc | drop | batch | bc rank | ff | bidir | clip | warmup | proj init |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -66,11 +68,11 @@ RMSNorm on the projections.
 | GUY02 | `guyton_pulmonary_oxygen_uptake_2008` | 3.28e-05 | 228 | 0.0179 | 40 | 16 | 4 | 11 | 0 | 0 | exp | zoh | 0.2 | 32 | 4 | 1 | ✓ | ✓ | 1 | random |
 | HOD01 | `hodgkin_huxley_1952_variant01` | 4.08e-05 | 330 | 0.0001 | 192 | 16 | 2 | 8 | 0 | 0 | standard | bilinear | 0 | 96 | 2 | 1 | – | – | 5 | zeros |
 | HUA01 | `huang_ferrell_1996` | 8.37e-06 | 330 | 0 | 64 | 16 | 2 | 6 | 0 | 0 | stable | bilinear | 0.15 | 96 | 32 | 1 | ✓ | ✓ | 5 | zeros |
-| HYN01 | `hynne_dano_sorensen_2001` | 9.46e-05 | 82 | 1.31e-05 | 32 | 4 | 1 | 13 | 1 | 0 | standard | zoh | 0.2 | 80 | 1 | 0.5 | ✓ | ✓ | 10 | zeros |
+| HYN01 | `hynne_dano_sorensen_2001` | 9.46e-05 | 82 | 1.31e-05 | 32 | 4 | 1 | 13 | 1 | 0 | standard | zoh | 0.2 | 80 | 1 | 0 | ✓ | ✓ | 10 | zeros |
 | INA01 | `inada_N_2009` | 1.67e-06 | 132 | 0.00413 | 24 | 30 | 5 | 7 | 1 | 1 | stable | zoh | 0.25 | 112 | 10 | 2 | ✓ | – | 5 | zeros |
 | IRI01 | `iribe_kohl_noble_2006` | 0.000449 | 4 | 1e-05 | 64 | 8 | 4 | 6 | 0 | 0 | exp | bilinear | 0.15 | 96 | 24 | 1 | – | ✓ | 5 | zeros |
 | JEL01 | `jelic_cupic_kolaranic_2005_Fig4` | 4.59e-06 | 8 | 0.001 | 32 | 4 | 2 | 4 | 2 | 0 | standard | bilinear | 0 | 32 | 32 | 1 | ✓ | ✓ | 5 | zeros |
-| JEL02 | `jelic_cupic_kolaranic_2005_Fig5` | 7.15e-05 | 59 | 0.000377 | 48 | 6 | 1 | 12 | 1 | 0 | exp | zoh | 0.3 | 64 | 12 | 0.5 | ✓ | – | 10 | random |
+| JEL02 | `jelic_cupic_kolaranic_2005_Fig5` | 7.15e-05 | 59 | 0.000377 | 48 | 6 | 1 | 12 | 1 | 0 | exp | zoh | 0.3 | 64 | 12 | 0 | ✓ | – | 10 | random |
 | KAR01 | `karagiannis_popel_2006` | 0.000286 | 9 | 1e-05 | 64 | 40 | 4 | 4 | 1 | 1 | stable | zoh | 0.1 | 16 | 4 | 1 | ✓ | ✓ | 5 | zeros |
 | KAR02 | `karagiannis_popel_2004` | 4.71e-05 | 213 | 0.00185 | 32 | 16 | 1 | 5 | 1 | 0 | standard | bilinear | 0.05 | 80 | 3 | 2 | ✓ | ✓ | 5 | random |
 | LEN01 | `lenbury_pacheenburawana_1991` | 6.7e-05 | 330 | 0.0001 | 32 | 50 | 5 | 12 | 0 | 1 | stable | bilinear | 0.1 | 96 | 4 | 1 | ✓ | ✓ | 5 | zeros |
