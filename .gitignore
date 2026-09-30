@@ -29,3 +29,5 @@ saved_models/
 fading_flash/cache/
 fading_flash/figures/
 .pytest_cache/
+build/
+dist/

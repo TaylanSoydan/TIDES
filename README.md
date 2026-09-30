@@ -15,24 +15,19 @@ needed to reproduce the paper: UEA classification, Physiome-ODE forecasting,
 the EigenWorms drop-rate experiment, and the *Fading Flash* diagnostic,
 including the Mamba-1/2/3 baselines.
 
-## Repository layout
-
-```
-tides/          PyTorch model package (importable as `tides`)
-uea/            UEA classification (Table 1) and the EigenWorms drop-rate experiment
-physiome_ode/   Physiome-ODE forecasting (Table 2)
-fading_flash/   Fading Flash: task generator, models, figures, static dataset export
-baselines/      Mamba-1/2/3 baselines: PyTorch ports and a sequence classifier
-tests/          pytest suite (CPU, ~15 s)
-docs/           reproducibility tables (every configuration) and dataset licenses
-data/           where the datasets go (nothing is redistributed)
-```
-
 ## Installation
 
-Python 3.11:
+The model is a small PyTorch package, `tides`, that needs only PyTorch, NumPy
+and SciPy:
 
 ```bash
+pip install git+https://github.com/TaylanSoydan/TIDES      # or, in a clone: pip install -e .
+```
+
+To reproduce the paper, work in a clone with everything the experiments use:
+
+```bash
+git clone https://github.com/TaylanSoydan/TIDES && cd TIDES
 pip install -r requirements.txt          # or: conda env create -f environment.yml && conda activate tides
 pytest tests                             # quick check, CPU only
 ```
@@ -41,6 +36,113 @@ pytest tests                             # quick check, CPU only
 build, install a matching wheel first, e.g.
 `pip install torch --index-url https://download.pytorch.org/whl/cu126`.
 Tested with Python 3.11 and PyTorch 2.9 and 2.14 on Linux, CPU and RTX 4090.
+
+## Quickstart
+
+```python
+import torch
+from tides import TIDES
+
+batch, length, dim = 2, 64, 16
+x = torch.randn(batch, length, dim)
+dt = torch.rand(batch, length)       # time since the previous observation
+
+model = TIDES(
+    d_input=dim,     # input channels
+    d_hidden=32,     # model width
+    ssm_size=16,     # state size per layer
+    ssm_blocks=2,    # HiPPO blocks the state is initialised from (divides ssm_size)
+    num_blocks=2,    # layers
+)
+y = model(x, step_scale=dt)
+assert y.shape == (batch, length, 32)
+```
+
+`step_scale` is the time since the previous observation: a `(batch, length)`
+tensor, a `(length,)` tensor shared by the batch, or a float.  The default, 1,
+is regular sampling.  For a sequence subsampled from a regular grid,
+`step_scale_from_indices(kept_indices)` gives the gaps.  The model runs on CPU
+or GPU (`model.to("cuda")`).
+
+For sequence classification, `TIDESClassifier` adds mean pooling and a linear
+head:
+
+```python
+from tides import TIDESClassifier
+
+clf = TIDESClassifier(d_input=dim, num_classes=5)
+logits = clf(x, step_scale=dt)       # (batch, 5)
+```
+
+### Training on your own data
+
+```python
+import torch
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, TensorDataset
+from tides import TIDESClassifier
+
+# N sequences of L steps with D channels, the time since the previous
+# observation at every step, and one of C labels per sequence.
+N, L, D, C = 64, 100, 3, 4
+x, dt, y = torch.randn(N, L, D), torch.rand(N, L), torch.randint(0, C, (N,))
+loader = DataLoader(TensorDataset(x, dt, y), batch_size=32, shuffle=True)
+
+model = TIDESClassifier(d_input=D, num_classes=C, d_hidden=32, ssm_size=16)
+opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+for epoch in range(3):
+    for xb, dtb, yb in loader:
+        loss = F.cross_entropy(model(xb, step_scale=dtb), yb)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+```
+
+All sequences in a batch share one length.  If yours differ, pad them; padded
+positions enter the BatchNorm statistics and `TIDESClassifier`'s mean pooling.
+For UEA datasets, `uea/main.py` runs this loop with a train/validation/test
+split, early stopping and several seeds: `python uea/main.py --dataset
+TSC_<name>` works for any dataset `aeon` can load (e.g. `TSC_Epilepsy`).
+
+### Model options
+
+| Argument | Default | |
+|---|---|---|
+| `lambda_re_mode`, `bc_mode` | `"input_dependent"` | Re(Λ) and B, C projected from the input at each step; `"lti"`: static |
+| `lambda_im_mode` | `"lti"` | Im(Λ) static; `"input_dependent"`: projected too |
+| `bc_rank` | `8` | rank of the low-rank B, C projectors |
+| `learn_lambda` | `"standard"` | parameterisation of Re(Λ): `"standard"`, `"exp"`, `"stable"` or `"softplus"` |
+| `discretization` | `"zoh"` | `"zoh"` or `"bilinear"` |
+| `bidir` | `False` | bidirectional scan |
+| `proj_norm` | `"rmsnorm"` | RMSNorm on the projector outputs, or `None` |
+| `step_mode` | `"lti"` | `"input_dependent"` gives Mamba_S, the paper's Mamba-style control: the step becomes `softplus(W [x, Δ] + b)` instead of the observed interval |
+
+With all three modes `"lti"` the model is S5.  Input-dependent B and C are a
+`ssm_size × d_hidden` matrix at every step, so time and memory grow with that
+product; beyond small models, train on a GPU.  `TIDESForecastingModel` is the
+forecasting model used on Physiome-ODE.
+
+`TIDESClassifier` and `TIDESForecastingModel` can be saved to and loaded from
+the Hugging Face Hub (`pip install huggingface_hub safetensors`):
+
+```python
+clf.save_pretrained("tides-classifier")           # config.json + model.safetensors
+clf.push_to_hub("<user>/tides-classifier")
+clf = TIDESClassifier.from_pretrained("<user>/tides-classifier")
+```
+
+## Repository layout
+
+```
+tides/          PyTorch model package (importable as `tides`)
+uea/            UEA classification (Table 1) and the EigenWorms drop-rate experiment
+physiome_ode/   Physiome-ODE forecasting (Table 2)
+fading_flash/   Fading Flash: task generator, models, figures, static dataset export
+baselines/      Mamba-1/2/3 baselines: PyTorch ports and a sequence classifier
+tests/          pytest suite (CPU)
+docs/           reproducibility tables (every configuration) and dataset licenses
+data/           where the datasets go (nothing is redistributed)
+```
 
 ### Mamba baselines (optional)
 
@@ -60,34 +162,6 @@ python baselines/check_mamba_ports.py    # needs a GPU; compares the ports with 
 Mamba-3 needs none of this.  Its official kernel only runs on Hopper GPUs, so
 the repository uses a PyTorch port of the SISO block (`baselines/mamba_blocks.py`),
 checked against the official module and computed with a chunked scan.
-
-## Using the model
-
-```python
-import torch
-from tides import TIDESClassifier, step_scale_from_indices
-
-model = TIDESClassifier(d_input=6, num_classes=5, d_hidden=16, ssm_size=16,
-                        ssm_blocks=2, num_blocks=1, bidir=True)
-
-x = torch.randn(8, 1000, 6)                       # (batch, observed steps, channels)
-keep = sorted(torch.randperm(2000)[:1000].tolist())
-dt = step_scale_from_indices(keep)                # gap to the previous observation
-logits = model(x, step_scale=dt)                  # (8, 5); dt may also be (batch, steps)
-```
-
-`step_mode="input_dependent"` gives the Mamba-style variant used as a control in
-the paper (Mamba_S): the step becomes `softplus(W [x, Δ] + b)` instead of the
-observed interval.  `TIDESForecastingModel` is the forecasting model used on
-Physiome-ODE.
-
-Both models can be saved to and loaded from the Hugging Face Hub:
-
-```python
-model.save_pretrained("tides-eigenworms")         # config.json + model.safetensors
-model.push_to_hub("<user>/tides-eigenworms")
-model = TIDESClassifier.from_pretrained("<user>/tides-eigenworms")
-```
 
 ## Reproducing the results
 
