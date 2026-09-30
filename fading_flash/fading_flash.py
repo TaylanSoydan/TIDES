@@ -250,8 +250,7 @@ def make_Mamba2():
 
 
 def make_Mamba3():
-    # upstream main's heavy-tail A (e9594ce), as in the paper's runs
-    return MambaNForTask(Mamba3Block(d_model=4, d_state=4, expand=1, a_activation='heavy_tail'))
+    return MambaNForTask(Mamba3Block(d_model=4, d_state=4, expand=1))
 
 
 MODEL_FACTORIES = {
@@ -430,7 +429,7 @@ TRAIN_CONFIG = {
     'noisy_sigma_in': 0.2, 'noisy_sigma_out': 0.05,
     # Part of the snapshot hash: change it whenever the model set or a model's
     # definition changes, so a stale snapshot is never loaded silently.
-    'model_set': 'mamba123-v2',
+    'model_set': 'mamba123-v3',
 }
 
 

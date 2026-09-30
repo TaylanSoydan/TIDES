@@ -52,7 +52,7 @@ All source code under this repository is released under the MIT License (see `LI
 
 ### Mamba, Mamba-2 and Mamba-3 (baselines)
 
-* Source: https://github.com/state-spaces/mamba (commit e9594ce, v2.3.2.post1)
+* Source: https://github.com/state-spaces/mamba (release 2.3.2.post1)
 * License: Apache-2.0
 * Use: `baselines/mamba_blocks.py` ports the Mamba, Mamba2 and Mamba3 (SISO) modules
   and the recurrences of their kernels to PyTorch; `baselines/mamba_classifier.py`

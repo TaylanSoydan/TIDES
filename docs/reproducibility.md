@@ -134,8 +134,7 @@ They get the gaps between kept steps as the step.  The Mamba rows use d_model
 residual) with LayerNorm and the Mamba mixer in place of BatchNorm and the SSM.
 They see a t/L time channel built on the full grid before dropping.  Their
 weight decay is 0, because at 0.1 (Adam) Mamba-1 and Mamba-2 collapse to
-constant predictors.  Mamba-3 follows the mamba_ssm 2.3.2.post1 release
-(softplus for the data-dependent A).  Mamba-1/2 need `mamba_ssm` on a GPU (see
+constant predictors.  Mamba-1/2 need `mamba_ssm` on a GPU (see
 the README); Mamba-3 runs anywhere.  On one RTX 4090 the whole run (10 models,
 3 seeds) takes about two hours.  Per epoch: 0.4-0.7 s for the SSM rows, 0.2 s
 for RFormer, 0.1-0.2 s for Mamba-1/2, and 1.4 s for Mamba-3 (chunked PyTorch
@@ -149,6 +148,5 @@ OMP_NUM_THREADS=1 python fading_flash/fading_flash.py      # trains 9 small mode
 ```
 
 Seed 0, 3000 Adam steps per model (`--steps` to change), about 12 minutes on
-one CPU core.  Mamba-3 here uses the heavy-tail A of upstream main
-(state-spaces/mamba #962, commit e9594ce), as in the paper's runs.
+one CPU core.
 
