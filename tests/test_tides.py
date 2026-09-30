@@ -79,3 +79,18 @@ def test_forecasting_hub_round_trip(tmp_path):
     values, steps = torch.randn(2, 12, 3), torch.rand(2, 12)
     with torch.no_grad():
         torch.testing.assert_close(m(values, steps), loaded(values, steps))
+
+
+def test_proj_norm_options():
+    for norm in ("rmsnorm", None):
+        TIDESClassifier(proj_norm=norm, **SMALL)
+    with pytest.raises(ValueError):
+        TIDESClassifier(proj_norm="layernorm", **SMALL)
+
+
+def test_tides_defaults_are_the_paper_model():
+    from tides import TIDES
+    ssm = TIDES(d_input=3, d_hidden=8, ssm_size=8, ssm_blocks=2, num_blocks=1).blocks[0].ssm
+    assert (ssm.lambda_re_mode, ssm.lambda_im_mode, ssm.bc_mode) == \
+        ("input_dependent", "lti", "input_dependent")
+    assert ssm.b_norm is not None                             # RMSNorm on the projectors

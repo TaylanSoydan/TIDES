@@ -121,7 +121,7 @@ def train_tides(
         ssm_size=16,
         ssm_blocks=4,
         num_blocks=4,
-        encoder_depth=1,
+        encoder_depth=0,
         lambda_re_mode='input_dependent',
         lambda_im_mode='lti',
         bc_mode='input_dependent',
@@ -167,7 +167,7 @@ def train_tides(
         Number of SSM blocks.
     num_blocks : int, default=4
         Number of model blocks.
-    encoder_depth : int, default=1
+    encoder_depth : int, default=0
         Depth of the encoder.
     lambda_re_mode : str, default='input_dependent'
         Mode for the real part of Lambda.

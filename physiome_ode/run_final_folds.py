@@ -48,7 +48,7 @@ HP_TYPES = {
     "weight_decay": float, "batch_size": int,
 }
 DEFAULTS = {
-    "encoder_depth": 1, "lambda_encoder_depth": 0, "bc_rank": 8,
+    "encoder_depth": 0, "lambda_encoder_depth": 0, "bc_rank": 8,
     "lambda_re_mode": "input_dependent", "lambda_im_mode": "lti",
     "bc_mode": "input_dependent", "learn_lambda": "standard",
     "discretization": "zoh", "proj_init_method": "zeros", "proj_norm": "rmsnorm",

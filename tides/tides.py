@@ -1,6 +1,10 @@
 """
 PyTorch TIDES (Time-aware Input-Dependent State-space).
 
+A diagonal S5-style SSM whose Re(Lambda), B and C are projected from the
+input at every step, while the discretization step stays the observed time
+interval: pass the time since the previous observation as `step_scale`.
+
 Architecture faithfully follows the original JAX reference
 implementation of the input-dependent S5 model.
 
@@ -8,20 +12,21 @@ SSM utilities (associative scan, discretization, HiPPO initialization)
 adapted from the public S5 package
 (https://github.com/lindermanlab/S5, Apache-2.0).
 
-Modes
-- 'lti'             : standard LTI S5 — Lambda, B, C are static
-- 'input_dependent' : Lambda, B, C projected from the input at each step
+Modes, set separately for Re(Lambda), Im(Lambda) and (B, C)
+- 'lti'             : static, as in S5
+- 'input_dependent' : projected from the input at each step
+                      (the default for Re(Lambda) and B, C)
 
 Block structure: norm -> SSM -> GELU -> dropout -> GLU -> dropout -> residual
 
-Per-timestep step_scale accepts float or (B, L) tensor for irregular
-sampling, used to discretize a continuous-time SSM at the observed
+step_scale is a float (regular sampling), an (L,) tensor shared by the batch,
+or a (B, L) tensor; it discretizes the continuous-time SSM at the observed
 intervals.
 
 Public API
-- TIDES                      : encoder used for forecasting
-- TIDESClassifier            : encoder + mean-pool + linear head for classification
-- step_scale_from_indices    : helper for random-drop classification experiments
+- TIDES                   : encoder, (B, L, d_input) -> (B, L, d_hidden)
+- TIDESClassifier         : encoder + mean-pool + linear head, -> (B, num_classes)
+- step_scale_from_indices : step sizes for a sequence subsampled from a regular grid
 """
 
 import math
@@ -109,7 +114,6 @@ def associative_scan(operator: Callable, elems, axis: int = 0, reverse: bool = F
     return tree_unflatten(scans, tree)
 
 
-@torch.jit.script
 def _binary_operator(
     q_i: Tuple[torch.Tensor, torch.Tensor],
     q_j: Tuple[torch.Tensor, torch.Tensor],
@@ -427,15 +431,15 @@ class TIDESSSM(nn.Module):
         discretization: Literal["zoh", "bilinear"] = "zoh",
         dt_min: float = 0.001,
         dt_max: float = 0.1,
-        lambda_re_mode: Literal["lti", "input_dependent"] = "lti",
+        lambda_re_mode: Literal["lti", "input_dependent"] = "input_dependent",
         lambda_im_mode: Literal["lti", "input_dependent"] = "lti",
-        bc_mode: Literal["lti", "input_dependent"] = "lti",
+        bc_mode: Literal["lti", "input_dependent"] = "input_dependent",
         learn_lambda: Literal["standard", "exp", "stable", "softplus"] = "standard",
         bidir: bool = False,
-        lambda_encoder_depth: int = 1,
+        lambda_encoder_depth: int = 0,
         bc_rank: int = 8,
         proj_init_method: str = "zeros",
-        proj_norm: Optional[str] = "rmsnorm",
+        proj_norm: Optional[Literal["rmsnorm"]] = "rmsnorm",
         step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
@@ -448,6 +452,8 @@ class TIDESSSM(nn.Module):
                     f"{name} must be 'lti' or 'input_dependent', got {m!r}")
         if bc_mode == "input_dependent" and bc_rank < 1:
             raise ValueError(f"bc_rank must be >= 1, got {bc_rank}")
+        if proj_norm not in ("rmsnorm", None):
+            raise ValueError(f"proj_norm must be 'rmsnorm' or None, got {proj_norm!r}")
         self.H = H
         self.clip_eigs = clip_eigs
         self.discretization = discretization
@@ -727,17 +733,17 @@ class TIDESBlock(nn.Module):
         discretization: Literal["zoh", "bilinear"] = "zoh",
         dt_min: float = 0.001,
         dt_max: float = 0.1,
-        lambda_re_mode: Literal["lti", "input_dependent"] = "lti",
+        lambda_re_mode: Literal["lti", "input_dependent"] = "input_dependent",
         lambda_im_mode: Literal["lti", "input_dependent"] = "lti",
-        bc_mode: Literal["lti", "input_dependent"] = "lti",
+        bc_mode: Literal["lti", "input_dependent"] = "input_dependent",
         learn_lambda: Literal["standard", "exp", "stable", "softplus"] = "standard",
         bidir: bool = False,
-        drop_rate: float = 0.05,
-        lambda_encoder_depth: int = 1,
+        drop_rate: float = 0.0,
+        lambda_encoder_depth: int = 0,
         bc_rank: int = 8,
         ff_mult: float = 1.0,
         proj_init_method: str = "zeros",
-        proj_norm: Optional[str] = "rmsnorm",
+        proj_norm: Optional[Literal["rmsnorm"]] = "rmsnorm",
         step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
@@ -797,15 +803,16 @@ class TIDESBlock(nn.Module):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class TIDES(nn.Module):
-    """PyTorch TIDES model.
+    """TIDES encoder: (B, L, d_input) -> (B, L, d_hidden).
 
     Architecture follows JAX TIDES:
         GluEncoder(d_input → d_hidden)
         → [TIDESBlock × num_blocks]
         → (B, L, d_hidden) features
 
-    The output head is not included here: TIDESClassifier and
-    TIDESForecastingModel add one.
+    The defaults are the TIDES model of the paper: input-dependent Re(Λ),
+    B and C, static Im(Λ).  The output head is not included here:
+    TIDESClassifier and TIDESForecastingModel add one.
 
     Args:
         d_input:              Input feature dimension
@@ -844,18 +851,18 @@ class TIDES(nn.Module):
         discretization: Literal["zoh", "bilinear"] = "zoh",
         dt_min: float = 0.001,
         dt_max: float = 0.1,
-        lambda_re_mode: Literal["lti", "input_dependent"] = "lti",
+        lambda_re_mode: Literal["lti", "input_dependent"] = "input_dependent",
         lambda_im_mode: Literal["lti", "input_dependent"] = "lti",
-        bc_mode: Literal["lti", "input_dependent"] = "lti",
+        bc_mode: Literal["lti", "input_dependent"] = "input_dependent",
         learn_lambda: Literal["standard", "exp", "stable", "softplus"] = "standard",
         bidir: bool = False,
-        drop_rate: float = 0.05,
-        encoder_depth: int = 1,
-        lambda_encoder_depth: int = 1,
+        drop_rate: float = 0.0,
+        encoder_depth: int = 0,
+        lambda_encoder_depth: int = 0,
         bc_rank: int = 8,
         ff_mult: float = 1.0,
         proj_init_method: str = "zeros",
-        proj_norm: Optional[str] = "rmsnorm",
+        proj_norm: Optional[Literal["rmsnorm"]] = "rmsnorm",
         step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
@@ -890,9 +897,8 @@ class TIDES(nn.Module):
         """
         Args:
             x:          (B, L, d_input) input sequence
-            step_scale: float or (B, L) tensor of per-timestep step sizes
-                        Pass delta_t / T_max from the merged observation+target
-                        timeline for irregular-sampling support.
+            step_scale: time since the previous observation: a float
+                        (1.0 = regular sampling), an (L,) or a (B, L) tensor
         Returns:
             (B, L, d_hidden) feature sequence
         """
@@ -909,9 +915,9 @@ class TIDES(nn.Module):
 class TIDESClassifier(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-series-classification")):
     """TIDES backbone + mean-pool + linear head for sequence classification.
 
-    Accepts the same step_scale as TIDES: float, (L,), or (B, L) tensor.
-    For random-drop experiments pass a (L_kept,) step_scale built from
-    the kept time indices so the SSM discretization adapts to irregular gaps.
+    Accepts the same step_scale as TIDES: float, (L,), or (B, L) tensor,
+    the time since the previous observation.  For a sequence subsampled
+    from a regular grid, step_scale_from_indices(kept_indices) gives it.
 
     Supports save_pretrained / from_pretrained / push_to_hub (Hugging Face Hub).
     """
@@ -939,7 +945,7 @@ class TIDESClassifier(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-series
         bc_rank: int = 8,
         ff_mult: float = 1.0,
         proj_init_method: str = "zeros",
-        proj_norm: Optional[str] = "rmsnorm",
+        proj_norm: Optional[Literal["rmsnorm"]] = "rmsnorm",
         step_mode: Literal["lti", "input_dependent"] = "lti",
     ):
         super().__init__()
@@ -976,7 +982,7 @@ def step_scale_from_indices(keep_indices, device=None) -> torch.Tensor:
 
     For a sequence subsampled at keep_indices from a uniform grid, the step
     at position i is the gap between consecutive kept indices:
-        step[0] = keep_indices[0] + 1
+        step[0] = 1
         step[i] = keep_indices[i] - keep_indices[i - 1]
 
     When keep_indices = [0, 1, 2, ..., L-1] (no drop), all steps = 1, identical

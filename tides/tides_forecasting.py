@@ -4,7 +4,8 @@ Wraps the core TIDES encoder with an output projection head.
 Consumes TIDESBatch produced by tides_collate and returns per-position predictions.
 """
 
-import torch
+from typing import Optional
+
 import torch.nn as nn
 from torch import Tensor
 
@@ -47,7 +48,7 @@ class TIDESForecastingModel(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-
         ssm_size: int = 32,
         ssm_blocks: int = 4,
         num_blocks: int = 4,
-        encoder_depth: int = 1,
+        encoder_depth: int = 0,
         lambda_re_mode: str = "input_dependent",
         lambda_im_mode: str = "lti",
         bc_mode: str = "input_dependent",
@@ -62,7 +63,7 @@ class TIDESForecastingModel(nn.Module, PyTorchModelHubMixin, **hub_kwargs("time-
         bidir: bool = False,
         clip_eigs: bool = False,
         proj_init_method: str = "zeros",
-        proj_norm: str = "rmsnorm",
+        proj_norm: Optional[str] = "rmsnorm",
     ):
         super().__init__()
         self.tides = TIDES(
