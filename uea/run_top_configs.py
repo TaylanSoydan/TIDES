@@ -1,20 +1,23 @@
 """
-Run top-K configs from a hypersearch CSV with additional seeds.
-Used to evaluate best configs from hypersearch across multiple seeds.
+Rerun the top-K trials of a hypersearch CSV on additional seeds.
+
+Trials are ranked by validation accuracy, the quantity uea/hypersearch.py
+maximises; test accuracy is only reported.  After the reruns the summary
+names the config with the highest mean validation accuracy over all seeds.
+The configurations in the paper are in uea/configs/tides/; this script is
+for rerunning the search, not needed to reproduce them.
 
 Results are cached per (dataset, seed, config) so jobs can be safely
 interrupted and restarted without re-running completed seeds.
 
 Usage:
-    python run_top_configs.py \
-        --results_file results/ethanol_v1/results_gpuhe_1.csv \
+    python uea/run_top_configs.py \
+        --results_file hypersearch_results.csv \
         --dataset TSC_EthanolConcentration \
         --top_k 10 \
         --seeds 43 44 45 46 \
-        --data_dir ../data/uea \
         --cache_dir eval_cache/EthanolConcentration \
-        --output_csv eval_results/EthanolConcentration.csv \
-        --wandb_project tides-anon
+        --output_csv eval_results/EthanolConcentration.csv
 """
 
 import argparse
@@ -89,19 +92,20 @@ def load_top_configs(results_files, top_k):
                 if row["status"] != "ok":
                     continue
                 try:
+                    row["val_metric"] = float(row["val_metric"])
                     row["best_test_metric"] = float(row["best_test_metric"])
                 except (ValueError, KeyError):
                     continue
                 rows.append(row)
 
-    # best row per trial (dedup across multiple CSV files / seeds)
+    # best row per trial (dedup across multiple CSV files / seeds), by validation
     by_trial = {}
     for row in rows:
         t = int(row["trial"])
-        if t not in by_trial or row["best_test_metric"] > by_trial[t]["best_test_metric"]:
+        if t not in by_trial or row["val_metric"] > by_trial[t]["val_metric"]:
             by_trial[t] = row
 
-    ranked = sorted(by_trial.values(), key=lambda r: r["best_test_metric"], reverse=True)
+    ranked = sorted(by_trial.values(), key=lambda r: r["val_metric"], reverse=True)
     return ranked[:top_k]
 
 
@@ -152,10 +156,10 @@ def main():
     print(f"Device: {device}")
 
     configs = load_top_configs(args.results_file, args.top_k)
-    print(f"\nTop {len(configs)} configs (by best_test@val):")
+    print(f"\nTop {len(configs)} configs (by validation accuracy):")
     for i, c in enumerate(configs):
-        print(f"  [{i+1}] trial={c['trial']}  best_test={float(c['best_test_metric']):.4f}"
-              f"  val={float(c['val_metric']):.4f}")
+        print(f"  [{i+1}] trial={c['trial']}  val={c['val_metric']:.4f}"
+              f"  test={c['best_test_metric']:.4f}")
 
     summary = []
 
@@ -171,7 +175,7 @@ def main():
         print(f"{'='*60}")
 
         # seed 42 result already in hypersearch CSV — no need to re-run
-        all_test = [seed42_test]
+        all_val, all_test = [seed42_val], [seed42_test]
 
         for seed in args.seeds:
             cached = cache_load(args.cache_dir, args.dataset, seed, kwargs)
@@ -180,6 +184,7 @@ def main():
                 best_test = cached["best_test"]
                 final_acc = cached["final_acc"]
                 print(f"  Seed {seed}: CACHED  val={best_val:.4f}  test={best_test:.4f}  final={final_acc:.4f}")
+                all_val.append(best_val)
                 all_test.append(best_test)
                 append_eval_result(args.output_csv, {
                     "dataset": args.dataset, "trial": trial_num, "rank": rank, "seed": seed,
@@ -210,6 +215,7 @@ def main():
                 )
                 result = {"best_val": best_val, "best_test": best_test, "final_acc": final_acc}
                 cache_save(args.cache_dir, args.dataset, seed, kwargs, result)
+                all_val.append(best_val)
                 all_test.append(best_test)
                 print(f"  Seed {seed}: val={best_val:.4f}  test={best_test:.4f}  final={final_acc:.4f}")
                 wandb.log(result)
@@ -226,18 +232,21 @@ def main():
                 import traceback; traceback.print_exc()
                 wandb.finish(exit_code=1)
 
-        mean = np.mean(all_test)
-        std = np.std(all_test)
         print(f"\n  → top{rank} (trial {trial_num}) | seeds=[42]+{args.seeds} | "
-              f"test={mean*100:.2f}% ± {std*100:.2f}%  n={len(all_test)}")
-        summary.append((rank, trial_num, mean, std, all_test))
+              f"val={np.mean(all_val)*100:.2f}%  test={np.mean(all_test)*100:.2f}% "
+              f"± {np.std(all_test)*100:.2f}%  n={len(all_test)}")
+        summary.append((rank, trial_num, np.mean(all_val), all_test))
 
     print(f"\n{'='*60}")
-    print("FINAL SUMMARY")
+    print("FINAL SUMMARY (val = mean validation accuracy, used for selection)")
     print(f"{'='*60}")
-    for rank, trial_num, mean, std, all_test in summary:
+    for rank, trial_num, val, all_test in summary:
         vals = "  ".join(f"{v*100:.2f}" for v in all_test)
-        print(f"  top{rank} (trial {trial_num}): {mean*100:.2f}% ± {std*100:.2f}%  [{vals}]")
+        print(f"  top{rank} (trial {trial_num}): val {val*100:.2f}%  "
+              f"test {np.mean(all_test)*100:.2f}% ± {np.std(all_test)*100:.2f}%  [{vals}]")
+    rank, trial_num, val, all_test = max(summary, key=lambda r: r[2])
+    print(f"\nSelected: top{rank} (trial {trial_num}), highest mean validation accuracy "
+          f"{val*100:.2f}%  ->  test {np.mean(all_test)*100:.2f}% ± {np.std(all_test)*100:.2f}%")
 
 
 if __name__ == "__main__":

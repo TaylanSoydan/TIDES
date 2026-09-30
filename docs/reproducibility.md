@@ -29,8 +29,10 @@ All six use input-dependent Re(Λ) and B, C, LTI Im(Λ), ZOH, `dt_min` 0.001,
 `dt_max` 0.1, `ff_mult` 1, RMSNorm on the projections.  The RFormer baseline
 configurations (Moreno-Pino et al., 2024) are in `uea/configs/rformer/`.
 
-To rerun the hyperparameter search: `python uea/hypersearch.py --help` (Optuna),
-then `python uea/run_top_configs.py` to evaluate the best trials on more seeds.
+To rerun the hyperparameter search: `python uea/hypersearch.py --help` (Optuna,
+maximising validation accuracy), then `python uea/run_top_configs.py` to rerun the
+best trials on more seeds.  Both select by validation accuracy; test accuracy is
+only reported.
 
 ## Physiome-ODE forecasting (Table 2)
 
