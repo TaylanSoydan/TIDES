@@ -2,8 +2,7 @@
 
 The commands below rerun each experiment in the paper.  The configuration
 files they read are the single source of truth; the tables here are generated
-from them.  The configurations are the ones found by the hyperparameter searches
-described in the paper; the search code is not part of this repository.
+from them.
 
 ## UEA classification (Table 1)
 
@@ -42,7 +41,7 @@ after `warmup` epochs.  Reported: test MSE, mean ± std over folds.  The
 configurations live in `physiome_ode/configs/winners.csv`; every winner uses
 input-dependent Re(Λ) and B, C, LTI Im(Λ), `dt_min` 0.001 and RMSNorm on the
 projections.  HYN01 and JEL02 have `ff_mult` 0, which leaves each
-block's GLU with no hidden units: the search found them at 0.5, but the runs
+block's GLU with no hidden units: their recorded value was 0.5, but the runs
 behind the paper's numbers read it as an integer.
 
 | Code | Dataset | lr | lr factor | wd | h | ssm | ssm blocks | L | enc | λ enc | learn λ | disc | drop | batch | bc rank | ff | bidir | clip | warmup | proj init |

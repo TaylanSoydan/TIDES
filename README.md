@@ -91,9 +91,7 @@ model = TIDESClassifier.from_pretrained("<user>/tides-eigenworms")
 
 ## Reproducing the results
 
-Every configuration used in the paper is in `docs/reproducibility.md`.  They
-are the configurations found by the hyperparameter searches described in the
-paper; the search code is not part of this repository.
+Every configuration used in the paper is in `docs/reproducibility.md`.
 
 ### UEA classification (Table 1)
 
@@ -155,7 +153,7 @@ generated dataset card describes the fields.
 
 ## Compute
 
-All PyTorch experiments were run on a single NVIDIA L40S (48 GB) GPU. UEA hyperparameter searches take 12–48 GPU-hours per dataset; Physiome-ODE final-fold runs take 0.2–2 GPU-hours per dataset.
+All PyTorch experiments were run on a single NVIDIA L40S (48 GB) GPU. Physiome-ODE final-fold runs take 0.2–2 GPU-hours per dataset.
 
 ## Datasets and licenses
 
