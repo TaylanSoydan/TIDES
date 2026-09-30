@@ -10,7 +10,7 @@ n_seeds: 5
 epoch: 200
 early_stop_patience: 30
 batch_size: 20
-lr: 5.176378532337808e-4
+lr: 0.000518
 weight_decay: 0.1
 optimizer: Adam
 
