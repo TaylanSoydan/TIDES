@@ -10,10 +10,10 @@ DIF01,difrancesco_noble_1985,6.695307231134251e-05,330,0.0001,32,50,5,12,0,1,sta
 DOK01,dokos_celler_lovell_1996,3.95722678049985e-06,92,0.005385165420076987,32,2,1,2,0,0,softplus,zoh,0.2,96,16,8,True,True,10,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 DUP01,dupont_1991a,8.458366932646768e-05,227,9.45496268069647e-07,16,10,1,7,2,0,standard,zoh,0.1,128,12,6,True,True,10,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 DUP02,dupont_1992b,0.0002244940619287054,7,1e-05,32,12,3,5,0,1,exp,zoh,0.3,32,8,1,True,False,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
-DUP03,dupont_1991b,1.3351494520010326e-05,181,1.0015813955858959e-07,64,4,2,4,2,0,standard,zoh,0.15000000000000002,64,8,8,False,False,10,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
+DUP03,dupont_1991b,1.3351494520010326e-05,181,1.0015813955858959e-07,64,4,2,4,2,0,standard,zoh,0.15000000000000002,64,8,8,False,False,10,random,input_dependent,lti,input_dependent,False,0.001,none
 GUP01,gupta_aslakson_gurbaxani_vernon_2007_a,3.554163558567883e-05,228,1.10501170455118e-06,16,28,2,13,1,0,standard,bilinear,0.2,96,10,2,True,True,5,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 GUP02,gupta_aslakson_gurbaxani_vernon_2007_b,8.323370431660515e-05,55,0.00024130000680226953,80,24,1,6,1,0,exp,bilinear,0.15000000000000002,64,10,1,True,False,5,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
-GUY01,guyton_muscle_blood_flow_control_2008,6.695e-05,330,1.000e-04,32,50,5,12,0,1,stable,bilinear,1.000e-01,96,4,1,True,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
+GUY01,guyton_muscle_blood_flow_control_2008,6.695307231134251e-05,330,0.0001,32,50,5,12,0,1,stable,bilinear,1.000e-01,96,4,1,True,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 GUY02,guyton_pulmonary_oxygen_uptake_2008,3.277104579252665e-05,228,0.017945213863398656,40,16,4,11,0,0,exp,zoh,0.2,32,4,1,True,True,1,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 HOD01,hodgkin_huxley_1952_variant01,4.083912370496919e-05,330,0.0001,192,16,2,8,0,0,standard,bilinear,0.0,96,2,1,False,False,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 HUA01,huang_ferrell_1996,8.366874300253398e-06,330,0.0,64,16,2,6,0,0,stable,bilinear,0.15000000000000002,96,32,1,True,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
@@ -26,7 +26,7 @@ KAR01,karagiannis_popel_2006,0.0002862410595306,9,1e-05,64,40,4,4,1,1,stable,zoh
 KAR02,karagiannis_popel_2004,4.711459457503318e-05,213,0.0018533460333753171,32,16,1,5,1,0,standard,bilinear,0.05,80,3,2,True,True,5,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 LEN01,lenbury_pacheenburawana_1991,6.695307231134251e-05,330,0.0001,32,50,5,12,0,1,stable,bilinear,0.1,96,4,1,True,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 LEN02,lenbury_ruktamatakul_amornsamarnkul_2001_a,0.0004712161211882966,10,1e-05,64,30,5,6,2,0,exp,zoh,0.2,48,24,1,False,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
-LI01,li_1996_simple,1.287e-05,180,1.000e-04,96,12,1,10,0,1,exp,bilinear,5.000e-02,64,2,1,False,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
+LI01,li_1996_simple,1.2871667341529463e-05,180,0.0001,96,12,1,10,0,1,exp,bilinear,5.000e-02,64,2,1,False,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 LI02,li_1996_simple_from_paper,2.8713594241652433e-06,313,1.135045586379836e-06,32,24,2,7,1,0,standard,zoh,0.2,32,15,2,True,True,1,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 M01,M_blood_flow_parent,0.00031406074081149734,11,0.0001,96,8,4,4,1,1,stable,zoh,0.05,32,16,1,False,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 MAC01,mackenzie_1996,8.366874300253398e-06,330,0.0,64,16,2,6,0,0,stable,bilinear,0.15,96,32,1,True,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
@@ -41,7 +41,7 @@ PUR02,purvis_smith_koizumi_butera_2007_npc,0.0003973149636034912,5,0.01,16,50,5,
 REE01,reed_nijhout_sparks_ulrich_2004,1.2871667341529463e-05,180,0.0001,96,12,1,10,0,1,exp,bilinear,0.05,64,2,1,False,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 REV01,revilla_garcia-ramos_2003,3.8129630819232334e-05,103,0.0038111527395924055,96,14,1,10,0,0,standard,bilinear,0.15000000000000002,96,12,2,True,True,5,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 SHO01,shorten_ocallaghan_davidson_soboleva_2007_variant01,0.00036642705645214575,5,0.0,112,6,3,2,1,0,exp,bilinear,0.15000000000000002,96,2,1,False,False,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
-SHO02,shorten_ocallaghan_davidson_soboleva_2007,3.999e-05,46,3.637e-04,128,10,1,15,1,0,standard,bilinear,3.000e-01,64,5,1,True,False,5,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
+SHO02,shorten_ocallaghan_davidson_soboleva_2007,3.999220932519812e-05,46,0.00036372321466309,128,10,1,15,1,0,standard,bilinear,3.000e-01,64,5,1,True,False,5,random,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 VAN01,vanbeek_2007,7.861538188381026e-05,188,8.642204703203854e-06,40,8,1,7,1,0,standard,bilinear,0.2,48,1,2,True,True,1,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 VIL01,vilar_kueh_barkai_leibler_2002,3.705219501740168e-05,5,0.01,128,30,5,5,2,2,exp,zoh,0.2,64,16,1,False,True,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
 WAN01,wang_2006,2.625861225443347e-05,159,0.006752038631158462,96,22,1,6,1,0,exp,bilinear,0.3,64,12,1,True,False,5,zeros,input_dependent,lti,input_dependent,False,0.001,rmsnorm
