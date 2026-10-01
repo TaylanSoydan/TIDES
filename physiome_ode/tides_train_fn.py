@@ -37,8 +37,8 @@ from utils import IMTS_dataset, get_data_loaders  # noqa: F401
 #
 #                                                          Authorship & Credits
 # =============================================================================
-__author__ = 'Anonymous'
-__credits__ = ['Anonymous']
+__author__ = 'Taylan Soydan'
+__credits__ = ['Taylan Soydan']
 __status__ = 'Development'
 # =============================================================================
 #
