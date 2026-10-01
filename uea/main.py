@@ -50,6 +50,8 @@ def parse_args():
     parser.add_argument("--data_dir", type=str, default=os.path.join(_HERE, "..", "data", "UEA_datasets"),
                         help="Directory aeon reads / downloads the UEA datasets into")
     parser.add_argument("--n_seeds", type=int, default=5, help="Number of random seeds (42, 43, ...)")
+    parser.add_argument("--seeds", type=int, nargs="+", default=None,
+                        help="Explicit seeds to run, e.g. --seeds 44 or --seeds 0 1 2 (overrides --n_seeds)")
 
     # Training
     parser.add_argument("--epoch", type=int, default=300, help="Max training epochs")
@@ -218,7 +220,7 @@ def main():
     print(f"Using device: {device}")
 
         
-    seeds = [42 + i for i in range(config.n_seeds)]
+    seeds = config.seeds or [42 + i for i in range(config.n_seeds)]
     at_val, final = [], []
 
     # The paper reports test accuracy at the epoch with the lowest validation

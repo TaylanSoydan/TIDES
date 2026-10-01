@@ -58,7 +58,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 sys.path.insert(0, os.path.join(_HERE, ".."))
 
-from aeon.datasets import load_classification  # noqa: E402
+from utils import load_uea  # noqa: E402
 
 from tides import TIDESClassifier, step_scale_from_indices  # noqa: E402
 from baselines.mamba_classifier import MambaClassifier, resolve_backend  # noqa: E402
@@ -143,7 +143,7 @@ def build_model(name: str, device, sig_dim: int = None, backend: str = "auto") -
 
 def load_data(data_dir):
     """EigenWorms, duplicates removed, fixed stratified 70/15/15 split (165/36/35)."""
-    X_raw, Y_raw = load_classification(DATASET, extract_path=data_dir)   # (N, C, L)
+    X_raw, Y_raw = load_uea(DATASET, data_dir)                           # (N, C, L)
     n, c, L = X_raw.shape
     _, first = np.unique(X_raw.reshape(n, c * L), axis=0, return_index=True)
     X_raw, Y_raw = X_raw[np.sort(first)], Y_raw[np.sort(first)]

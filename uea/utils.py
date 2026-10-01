@@ -1,3 +1,6 @@
+import os
+import shutil
+
 import numpy as np
 import torch
 from aeon.datasets import load_classification
@@ -22,13 +25,30 @@ def remove_duplicates(X, Y):
 
     return X[keep], Y[keep]
 
+def load_uea(name, data_dir):
+    """aeon's load_classification, without leaving a half-downloaded dataset behind.
+
+    aeon downloads into <data_dir>/<name>/.  If that fails (e.g. no internet on a
+    compute node) the folder it created is removed, so the next call starts a
+    clean download instead of finding partial files.
+    """
+    target = os.path.join(data_dir, name) if data_dir else None
+    fresh = target is not None and not os.path.exists(target)
+    try:
+        return load_classification(name, extract_path=data_dir)
+    except BaseException:
+        if fresh:
+            shutil.rmtree(target, ignore_errors=True)
+        raise
+
+
 def get_dataset_preprocess(config, seed):
     # Create dataset and data loader
     if config.dataset[:4] == "TSC_":
         ds_key = config.dataset[4:]
         data_dir = getattr(config, "data_dir", None)
 
-        X, Y = load_classification(ds_key, extract_path=data_dir)
+        X, Y = load_uea(ds_key, data_dir)
         X, Y = remove_duplicates(X, Y)
 
         X = torch.tensor(np.transpose(X, (0, 2, 1))).float()

@@ -173,7 +173,8 @@ Every configuration used in the paper is in `docs/reproducibility.md`.
 python uea/main.py --config uea/configs/tides/EW.yaml    # likewise SCP1, SCP2, MI, ETC, HB
 ```
 
-Five seeds (42-46) on a 70/15/15 random re-split each; the script ends with
+Five seeds (42-46) on a 70/15/15 random re-split each (`--seeds` runs any
+others, e.g. `--seeds 44` or `--seeds 0 1 2`); the script ends with
 test accuracy at the best-validation epoch, mean ± std over seeds.  Datasets
 download automatically via `aeon` into `data/UEA_datasets/` (`--data_dir` to
 change).
