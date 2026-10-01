@@ -10,8 +10,8 @@ Protocol:
     - batch_size = 8, 4 layers, ~100k parameters for both models
     - 5 warmup steps (discarded), then 20 measured steps averaged
     - peak GPU memory reset before each timed block
-    - Each config runs in an isolated subprocess so SLURM OOM kills are
-      caught gracefully by the parent and logged as OOM.
+    - Each config runs in an isolated subprocess so CUDA out-of-memory errors
+      and SLURM OOM kills are caught by the parent and logged as OOM.
 
 Output: uea/ablations/results_time_memory.csv
 """
@@ -139,7 +139,8 @@ def run_one(model_name: str, seq_len: int, channels: int, writer, f):
             # Non-zero exit — killed by OOM or crashed
             stderr_lines = result.stderr.strip().splitlines()
             stderr_tail = stderr_lines[-1] if stderr_lines else ""
-            if result.returncode == -9 or "kill" in stderr_tail.lower() or "oom" in stderr_tail.lower():
+            tail = stderr_tail.lower()
+            if result.returncode == -9 or "kill" in tail or "oom" in tail or "out of memory" in tail:
                 print("OOM")
                 status = "OOM"
             else:
