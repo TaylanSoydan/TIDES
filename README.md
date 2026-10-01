@@ -2,7 +2,7 @@
 
 ![TIDES architecture](docs/TIDES_fig2.png)
 
-Code release accompanying the NeurIPS 2026 submission.
+Code for the paper [TIDES: Implicit Time-Awareness in Selective State Space Models](https://arxiv.org/abs/2605.09742).
 
 Selective SSMs such as Mamba make the discretisation step Δ a learned function
 of the input, so Δ stops being a physical sampling interval.  TIDES moves the
@@ -254,4 +254,11 @@ All source code in this repository (excluding files explicitly marked otherwise 
 
 ## Citation
 
-A citation block will be added to the camera-ready release. The submission is double-blind; please cite the OpenReview entry for now.
+```bibtex
+@article{soydan2026tides,
+  title   = {{TIDES}: Implicit Time-Awareness in Selective State Space Models},
+  author  = {Soydan, Taylan and Bessa, Miguel A. and Mohr, Dirk and Barreira, Rui},
+  journal = {arXiv preprint arXiv:2605.09742},
+  year    = {2026}
+}
+```
