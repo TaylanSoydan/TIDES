@@ -216,15 +216,20 @@ task and writes the paper's figures to `fading_flash/figures/`.  The task
 itself is `fading_flash/task.py`.
 
 A static copy of the benchmark (train, validation and a test split at each Δ)
-in Hugging Face `datasets` format:
+is on the Hugging Face Hub as
+[Taylantay/fading-flash](https://huggingface.co/datasets/Taylantay/fading-flash);
+its dataset card describes the fields:
+
+```python
+from datasets import load_dataset
+ds = load_dataset("Taylantay/fading-flash")
+```
+
+`fading_flash/make_hf_dataset.py` rebuilds the same files bit for bit:
 
 ```bash
 python fading_flash/make_hf_dataset.py --out_dir data/fading_flash_hf
-hf upload <user>/fading-flash data/fading_flash_hf . --repo-type dataset
 ```
-
-after which `datasets.load_dataset("<user>/fading-flash")` works; the
-generated dataset card describes the fields.
 
 ## Compute
 
